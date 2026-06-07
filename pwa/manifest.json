@@ -2,7 +2,7 @@
   "name": "小孩激励积分",
   "short_name": "积分激励",
   "description": "完成任务赚取积分，兑换奖励的儿童激励积分管理工具",
-  "start_url": "./index.html",
+  "start_url": "/index.html",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#FFF9F5",
