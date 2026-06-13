@@ -12,19 +12,19 @@ const DAILY_LIMIT = 3;
 
 // 四张奖品图片
 const SLOT_IMAGES = [
-    '图片/fWWZkBVFC.jpeg',
-    '图片/转盘奖项文字居中问题.png',
-    '图片/转盘奖项文字居中问题 (1).png',
-    '图片/转盘奖项文字居中问题 (2).png',
+    '图片/1.jpeg',
+    '图片/2.jpg',
+    '图片/3.jpg',
+    '图片/4.jpg',
 ];
 
 // 中奖概率表
 const PRIZE_PROBS = [
-    { name: '大奖',    score: 10, match: 4, prob: 5  },  // 四个一样
-    { name: '幸运奖',  score: 8,  match: 3, prob: 15 },  // 三个一样
-    { name: '运气奖',  score: 7,  match: 2, prob: 10 },  // 两队一样（AABB）
-    { name: '小奖',    score: 6,  match: 2, prob: 50 },  // 两个一样
-    { name: '谢谢参与', score: 4,  match: 0, prob: 10 },  // 全都不一樣
+    { name: '大奖',    score: 10, match: 4, prob: 5.6  },  // 四个一样
+    { name: '幸运奖',  score: 8,  match: 3, prob: 16.7 },  // 三个一样
+    { name: '运气奖',  score: 7,  match: 2, prob: 11.1 },  // 两队一样（AABB）
+    { name: '小奖',    score: 6,  match: 2, prob: 55.6 },  // 两个一样
+    { name: '谢谢参与', score: 4,  match: 0, prob: 11.1 },  // 全都不一樣
 ];
 
 /**

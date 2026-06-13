@@ -76,7 +76,7 @@ Pages.tasks = {
         }
 
         const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
-        const tasks = tasksResult.success ? tasksResult.data : [];
+        const tasks = (tasksResult.success ? tasksResult.data : []).sort((a, b) => (a.order || 0) - (b.order || 0));
 
         APP.hideLoading();
 
@@ -185,21 +185,19 @@ Pages.tasks = {
                 if (!self._draggedItem || self._draggedItem === item) return;
 
                 // 交换 DOM 位置
-                const allItems = [...container.querySelectorAll('.task-item')];
-                const fromIdx = allItems.indexOf(self._draggedItem);
-                const toIdx = allItems.indexOf(item);
-
-                if (fromIdx < toIdx) {
+                const fromIdxBefore = [...container.querySelectorAll('.task-item')].indexOf(self._draggedItem);
+                const toIdxBefore = [...container.querySelectorAll('.task-item')].indexOf(item);
+                if (fromIdxBefore < toIdxBefore) {
                     item.after(self._draggedItem);
                 } else {
                     item.before(self._draggedItem);
                 }
 
-                // 从云端同步顺序：获取新的 DOM 顺序，逐个更新云端 order 字段
+                // 从云端同步顺序：拖拽后重新获取 DOM 顺序，逐个更新云端 order 字段
                 const newTasksResult = await dbQuery(COLLECTIONS.TASKS, {});
                 const newTasks = newTasksResult.success ? newTasksResult.data : [];
                 const updatedOrder = [];
-                allItems.forEach((el, idx) => {
+                container.querySelectorAll('.task-item').forEach((el, idx) => {
                     updatedOrder.push({ id: el.dataset.taskId, order: idx });
                 });
 

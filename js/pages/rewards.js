@@ -78,7 +78,7 @@ Pages.rewards = {
 
         // 获取奖励列表
         const rewardsResult = await dbQuery(COLLECTIONS.REWARDS, {});
-        const rewards = rewardsResult.success ? rewardsResult.data : [];
+        const rewards = (rewardsResult.success ? rewardsResult.data : []).sort((a, b) => (a.order || 0) - (b.order || 0));
 
         APP.hideLoading();
 
@@ -184,21 +184,19 @@ Pages.rewards = {
                 item.style.borderTop = '';
                 if (!this._draggedItem || this._draggedItem === item) return;
 
-                const allItems = [...container.querySelectorAll('.reward-item')];
-                const fromIdx = allItems.indexOf(this._draggedItem);
-                const toIdx = allItems.indexOf(item);
-
-                if (fromIdx < toIdx) {
+                const fromIdxBefore = [...container.querySelectorAll('.reward-item')].indexOf(this._draggedItem);
+                const toIdxBefore = [...container.querySelectorAll('.reward-item')].indexOf(item);
+                if (fromIdxBefore < toIdxBefore) {
                     item.after(this._draggedItem);
                 } else {
                     item.before(this._draggedItem);
                 }
 
-                // 同步顺序到云端
+                // 同步顺序到云端：拖拽后重新获取 DOM 顺序
                 const newRewardsResult = await dbQuery(COLLECTIONS.REWARDS, {});
                 const newRewards = newRewardsResult.success ? newRewardsResult.data : [];
                 const updatedOrder = [];
-                allItems.forEach((el, idx) => {
+                container.querySelectorAll('.reward-item').forEach((el, idx) => {
                     updatedOrder.push({ id: el.dataset.rewardId, order: idx });
                 });
                 for (const entry of updatedOrder) {
