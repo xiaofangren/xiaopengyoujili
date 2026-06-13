@@ -1,18 +1,121 @@
 // ============================================
-// 小孩激励积分 - 积分记录 / 我的页面
+// 小孩激励积分 - 积分记录 / 我的页面（日历视图）
 // ============================================
 
 Pages.logs = Pages.logs || {};
 
+/**
+ * 获取指定年月日历的天数信息
+ */
+function getCalendarDays(year, month) {
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    const startDayOfWeek = firstDay.getDay(); // 0=Sun
+    const totalDays = lastDay.getDate();
+
+    const days = [];
+    // 填充上个月的空白
+    for (let i = 0; i < startDayOfWeek; i++) {
+        days.push(null);
+    }
+    // 填充当月天数
+    for (let d = 1; d <= totalDays; d++) {
+        days.push(d);
+    }
+    return days;
+}
+
+/**
+ * 格式化 YYYY-MM-DD
+ */
+function formatDateStr(year, month, day) {
+    const m = String(month).padStart(2, '0');
+    const d = String(day).padStart(2, '0');
+    return `${year}-${m}-${d}`;
+}
+
 Pages.logs = {
     activeTab: 'logs', // logs(记录) | settings(设置)
+    selectedDate: null,  // 'YYYY-MM-DD'，null 表示今天
+    viewYear: new Date().getFullYear(),
+    viewMonth: new Date().getMonth() + 1,
+    allLogs: null,       // 缓存全部日志
 
     /**
      * 初始化"我的"页面
      */
     async init() {
+        this.selectedDate = formatDateStr(
+            new Date().getFullYear(),
+            new Date().getMonth() + 1,
+            new Date().getDate()
+        );
+        await this.refreshLogs();
         this.render();
         this.bindEvents();
+    },
+
+    /**
+     * 从云端刷新全部日志（查最近 90 天，按时间倒序）
+     */
+    async refreshLogs() {
+        const user = AUTH.getCurrentUser();
+        if (!user) return;
+        const result = await dbQueryLogsPaged(user._id, 90, 500);
+        this.allLogs = result.success ? result.data : [];
+    },
+
+    /**
+     * 按日期筛选日志
+     */
+    getLogsByDate(dateStr) {
+        if (!this.allLogs) return [];
+        return this.allLogs.filter(log => {
+            if (log.localDate === dateStr) return true;
+            const time = log.createTime || log._createTime || log._updateTime || '';
+            if (!time) return false;
+            const logTime = new Date(time);
+            const start = new Date(dateStr + 'T00:00:00');
+            const end = new Date(dateStr + 'T23:59:59.999');
+            return logTime >= start && logTime <= end;
+        });
+    },
+
+    /**
+     * 获取某天的总积分
+     */
+    getDayTotal(dateStr) {
+        const logs = this.getLogsByDate(dateStr);
+        return logs.reduce((sum, log) => sum + log.amount, 0);
+    },
+
+    /**
+     * 获取有记录的日期集合 { 'DD': true }
+     */
+    getDaysWithLogs() {
+        const days = new Set();
+        const targetPrefix = `${this.viewYear}-${String(this.viewMonth).padStart(2, '0')}`;
+
+        this.allLogs.forEach(log => {
+            // 优先用 localDate
+            const localDate = log.localDate || log._createTime || log._updateTime || '';
+            if (!localDate) return;
+            if (localDate.startsWith(targetPrefix + '-')) {
+                const d = parseInt(localDate.substring(8, 10), 10);
+                if (!isNaN(d)) days.add(d);
+            }
+            // 降级：用 createTime 做时区转换
+            const createTime = log.createTime || '';
+            if (createTime) {
+                const logTime = new Date(createTime);
+                const localStr = logTime.toLocaleDateString('sv-SE');
+                if (localStr.startsWith(targetPrefix)) {
+                    const d = parseInt(localStr.substring(8, 10), 10);
+                    if (!isNaN(d)) days.add(d);
+                }
+            }
+        });
+        return days;
     },
 
     /**
@@ -23,7 +126,6 @@ Pages.logs = {
         if (!container) return;
 
         const user = AUTH.getCurrentUser();
-        console.log('🔍 logs.js - getCurrentUser:', user);
         if (!user) {
             container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">😴</div><p>请先登录</p></div>';
             return;
@@ -47,20 +149,90 @@ Pages.logs = {
         `;
 
         if (this.activeTab === 'logs') {
-            // 获取积分记录
-            console.log('🔍 查询积分记录, userId:', user._id);
-            const logsResult = await dbQuery(COLLECTIONS.LOGS, {
-                userId: user._id,
-            });
-            console.log('🔍 积分记录结果:', logsResult);
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth() + 1;
+            const todayDate = now.getDate();
 
-            html += '<div id="logs-list">';
-            if (logsResult.success && logsResult.data.length > 0) {
-                // 按时间倒序
-                const sortedLogs = [...logsResult.data].reverse();
+            const year = this.viewYear;
+            const month = this.viewMonth;
+
+            // 计算上一年/下一年月份
+            const prevMonth = month === 1 ? `${currentYear - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
+            const nextMonth = month === 12 ? `${currentYear + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`;
+
+            // 月份标题
+            html += `
+                <div class="card" style="margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <button class="btn btn-outline btn-small" id="cal-prev-month" data-month="${prevMonth}" style="padding:6px 14px; min-height:32px;">◀</button>
+                        <span style="font-size:1.2rem; font-weight:800;" id="cal-month-title">${year}年${month}月</span>
+                        <button class="btn btn-outline btn-small" id="cal-next-month" data-month="${nextMonth}" style="padding:6px 14px; min-height:32px;">▶</button>
+                    </div>
+                </div>
+            `;
+
+            // 日历视图
+            const days = getCalendarDays(year, month);
+            const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+            const hasLogs = this.getDaysWithLogs();
+
+            html += '<div class="card" style="margin-bottom:16px;">';
+            // 星期标题行
+            html += '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:2px; margin-bottom:4px;">';
+            weekDays.forEach(wd => {
+                html += `<div style="text-align:center; font-size:0.78rem; color:var(--text-secondary); font-weight:700; padding:4px 0;">${wd}</div>`;
+            });
+            html += '</div>';
+
+            // 日期网格
+            html += '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:4px;">';
+            days.forEach(d => {
+                if (!d) {
+                    html += '<div></div>'; // 空白
+                    return;
+                }
+
+                const dateStr = formatDateStr(year, month, d);
+                const isToday = (year === currentYear && month === currentMonth && d === todayDate);
+                const isSelected = (dateStr === this.selectedDate);
+                const hasLog = hasLogs.has(d);
+                const dayTotal = this.getDayTotal(dateStr);
+
+                let dayClass = 'cal-day';
+                if (isToday) dayClass += ' cal-day-today';
+                if (isSelected) dayClass += ' cal-day-selected';
+
+                html += `
+                    <div class="${dayClass}" data-date="${dateStr}" data-day="${d}">
+                        <div style="text-align:center;">
+                            <span style="display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; font-size:0.95rem; font-weight:${isSelected ? '800' : (isToday ? '700' : '500')}; ${isSelected ? 'background:var(--primary); color:#fff;' : (isToday ? 'color:var(--primary);' : '')}">${d}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div></div>';
+
+            // 选中日期的记录
+            const dayTotal = this.getDayTotal(this.selectedDate);
+            html += `
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                    <span style="font-size:1rem; font-weight:800; color:var(--text-primary);">📅 ${this.selectedDate} 的积分记录</span>
+                    <span style="font-size:0.95rem; font-weight:700; color:${dayTotal >= 0 ? 'var(--success)' : 'var(--danger)'};">
+                        当日总计：${dayTotal > 0 ? '+' : ''}${dayTotal} 积分
+                    </span>
+                </div>
+            `;
+            html += '<div id="cal-logs-list">';
+
+            const selectedLogs = this.getLogsByDate(this.selectedDate);
+            if (selectedLogs.length > 0) {
+                // 按时间倒序（新的在最上面），与 dbQueryLogsPaged 查询顺序一致
+                const sortedLogs = [...selectedLogs];
                 sortedLogs.forEach(log => {
                     const isPositive = log.amount > 0;
-                    const time = log._createTime ? new Date(log._createTime).toLocaleString('zh-CN', {
+                    const time = log.createTime || log._createTime || '';
+                    const displayTime = time ? new Date(time).toLocaleString('zh-CN', {
                         month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                     }) : '';
 
@@ -68,6 +240,7 @@ Pages.logs = {
                     if (log.type === 'task') icon = '✅';
                     else if (log.type === 'reward') icon = '🎁';
                     else if (log.type === 'lottery') icon = '🎰';
+                    else if (log.type === 'manual') icon = '➕';
 
                     html += `
                         <div class="log-item">
@@ -85,17 +258,14 @@ Pages.logs = {
             } else {
                 html += `
                     <div class="empty-state">
-                        <div class="empty-state-icon">📝</div>
-                        <p class="empty-state-text">还没有积分记录</p>
-                        <p class="empty-state-text" style="margin-top:8px; font-size:0.85rem;">
-                            完成任务即可赚取积分哦！
-                        </p>
+                        <div class="empty-state-icon">📅</div>
+                        <p class="empty-state-text">这一天还没有积分记录</p>
                     </div>
                 `;
             }
             html += '</div>';
         } else {
-            // 设置页面
+            // 设置页面（保持不变）
             html += `
                 <div id="settings-content">
                     <!-- 积分概览 -->
@@ -160,11 +330,49 @@ Pages.logs = {
         const container = document.getElementById('logs-content');
         if (!container) return;
 
+        const self = this;
+
         container.addEventListener('click', (e) => {
+            // 分段选择器
             const segmentBtn = e.target.closest('.segment-btn');
             if (segmentBtn) {
-                this.activeTab = segmentBtn.dataset.tab;
-                this.render();
+                SOUND.click();
+                self.activeTab = segmentBtn.dataset.tab;
+                self.render();
+                return;
+            }
+
+            // 日历日期点击
+            const calDay = e.target.closest('.cal-day');
+            if (calDay) {
+                SOUND.click();
+                self.selectedDate = calDay.dataset.date;
+                self.render();
+                return;
+            }
+
+            // 月份切换
+            const prevBtn = e.target.closest('#cal-prev-month');
+            const nextBtn = e.target.closest('#cal-next-month');
+            if (prevBtn) {
+                SOUND.tabSwitch();
+                self.viewMonth--;
+                if (self.viewMonth < 1) {
+                    self.viewMonth = 12;
+                    self.viewYear--;
+                }
+                self.render();
+                return;
+            }
+            if (nextBtn) {
+                SOUND.tabSwitch();
+                self.viewMonth++;
+                if (self.viewMonth > 12) {
+                    self.viewMonth = 1;
+                    self.viewYear++;
+                }
+                self.render();
+                return;
             }
         });
     },
@@ -173,6 +381,7 @@ Pages.logs = {
      * 手动添加积分
      */
     showAddScoreModal() {
+        SOUND.edit();
         APP.showFormModal({
             title: '➕ 手动添加积分',
             fields: [
@@ -187,7 +396,7 @@ Pages.logs = {
                 }
                 const result = await AUTH.addScore(amount, values.reason, 'manual');
                 if (result.success) {
-                    APP.showToast(`✅ 成功添加 ${amount} 积分！`);
+                    await this.refreshLogs();
                     this.render();
                 } else {
                     APP.showToast('操作失败：' + result.error);
@@ -206,7 +415,9 @@ Pages.logs = {
                 await dbUpdate(COLLECTIONS.USERS, user._id, { completedToday: 0 });
                 user.completedToday = 0;
                 AUTH._saveToLocalStorage();
+                SOUND.click();
                 APP.showToast('✅ 今日完成数已重置');
+                await this.refreshLogs();
                 this.render();
             }
         });
@@ -216,6 +427,7 @@ Pages.logs = {
      * 导出数据（简单 JSON 格式）
      */
     showDataModal() {
+        SOUND.edit();
         const user = AUTH.getCurrentUser();
         if (!user) return;
 
@@ -244,6 +456,7 @@ Pages.logs = {
      * 退出登录
      */
     logout() {
+        SOUND.click();
         APP.showConfirm('退出登录', '确定要退出登录吗？', () => {
             AUTH.logout();
             APP.navigateTo('login');

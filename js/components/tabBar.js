@@ -20,8 +20,7 @@ function tabBarActiveState(pageName) {
     });
 
     // 登录页隐藏 tabBar
-    const loginPage = document.getElementById('page-login');
-    if (loginPage && loginPage.classList.contains('active')) {
+    if (APP.currentPage === 'login') {
         tabBar.classList.add('hidden');
     } else {
         tabBar.classList.remove('hidden');
@@ -40,6 +39,7 @@ function initTabBar() {
         if (tabItem) {
             const page = tabItem.dataset.page;
             if (page) {
+                SOUND.tabSwitch();
                 APP.navigateTo(page);
             }
         }

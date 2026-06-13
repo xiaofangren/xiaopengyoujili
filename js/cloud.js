@@ -51,20 +51,41 @@ const COLLECTIONS = {
  * 腾讯云 SDK add({data: item}) 后，查询返回的文档结构是：
  * { _id: 'xxx', _openid: 'xxx', data: { score: 0, username: '丫丫', ... } }
  * 需要把 data 里的字段提到顶层
+ *
+ * 同时保留云开发自动生成的元数据字段（_createTime, _updateTime 等）
  */
 function unwrapDoc(doc) {
     if (!doc) return doc;
+
+    // 云开发元数据字段（这些在 data 子对象和外层都可能有，优先保留外层的）
+    const metaFields = ['_createTime', '_updateTime', 'createTime', 'updateTime'];
+
+    // 先把外层元数据字段暂存
+    const meta = {};
+    metaFields.forEach(f => {
+        if (doc[f] !== undefined) meta[f] = doc[f];
+    });
+
     // 如果有 data 子对象，把 data 里的字段合并到顶层
     if (doc.data && typeof doc.data === 'object' && !Array.isArray(doc.data)) {
         const unwrapped = { ...doc.data };
         // 保留 _id（外层的 _id 是云开发生成的真实 ID）
         if (doc._id) unwrapped._id = String(doc._id);
+        // 保留云开发自动生成的元数据字段（外层的可能带时区信息更准确）
+        Object.keys(meta).forEach(f => {
+            if (!(f in unwrapped)) unwrapped[f] = meta[f];
+        });
         return unwrapped;
     }
-    // 没有 data 包装，确保 _id 是字符串
+    // 没有 data 包装，确保 _id 是字符串，同时补上元数据字段
     if (doc._id && typeof doc._id !== 'string') {
         doc._id = String(doc._id);
     }
+    metaFields.forEach(f => {
+        if (!(f in doc) && meta[f] !== undefined) {
+            doc[f] = meta[f];
+        }
+    });
     return doc;
 }
 
@@ -76,11 +97,40 @@ async function dbQuery(collection, condition = {}) {
         return { success: false, data: [], error: '云开发未初始化' };
     }
     try {
-        const result = await db.collection(collection).where(condition).get();
+        let query = db.collection(collection).where(condition);
+        // 日志集合需要限制返回数量，避免截断
+        if (collection === COLLECTIONS.LOGS) {
+            query = query.limit(100);
+        }
+        const result = await query.get();
         const data = (result.data || []).map(item => unwrapDoc(item));
         return { success: true, data };
     } catch (error) {
         console.error(`❌ 查询 ${collection} 失败:`, error);
+        return { success: false, data: [], error: error.message };
+    }
+}
+
+/**
+ * 日志专用查询：按 createTime 倒序查最近 N 天
+ */
+async function dbQueryLogsPaged(userId, maxDays = 90, maxCount = 500) {
+    if (!cloudMode || !db) {
+        return { success: false, data: [], error: '云开发未初始化' };
+    }
+    try {
+        const from = new Date();
+        from.setDate(from.getDate() - maxDays);
+        // 云开发 SDK orderBy + limit 查询
+        let query = db.collection(COLLECTIONS.LOGS)
+            .where({ userId, createTime: { $gte: from.toISOString() } })
+            .orderBy('createTime', 'desc')
+            .limit(maxCount);
+        const result = await query.get();
+        const data = (result.data || []).map(item => unwrapDoc(item));
+        return { success: true, data };
+    } catch (error) {
+        console.error(`❌ 日志分页查询失败:`, error);
         return { success: false, data: [], error: error.message };
     }
 }
@@ -114,11 +164,10 @@ async function dbGetById(collection, docId) {
  */
 async function dbAdd(collection, item) {
     if (!cloudMode || !db) {
+        console.warn('⚠️ dbAdd 未调用，cloudMode:', cloudMode, 'db:', !!db);
         return { success: false, error: '云开发未初始化' };
     }
     try {
-        // 直接用 add(item)，不用 add({data: item})
-        // 这样字段存在顶层，.where() 才能正确查询
         const result = await db.collection(collection).add(item);
         return { success: true, id: String(result.id) };
     } catch (error) {

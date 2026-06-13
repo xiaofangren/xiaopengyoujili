@@ -36,10 +36,12 @@ Pages.home = {
         });
         let completedToday = 0;
         if (logsResult.success && logsResult.data.length > 0) {
-            const today = new Date().toISOString().slice(0, 10);
-            completedToday = logsResult.data.filter(log =>
-                log._createTime && log._createTime.startsWith(today)
-            ).length;
+            const today = new Date().toLocaleDateString('sv-SE');
+            completedToday = logsResult.data.filter(log => {
+                if (log.localDate === today) return true;
+                const time = log.createTime || log._createTime || '';
+                return time && time.startsWith(today);
+            }).length;
         }
 
         container.innerHTML = `

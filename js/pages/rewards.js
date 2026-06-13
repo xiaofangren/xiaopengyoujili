@@ -33,7 +33,8 @@ Pages.rewards = {
      */
     async redeemReward(rewardId) {
         const rewardsResult = await dbQuery(COLLECTIONS.REWARDS, {});
-        const reward = rewardsResult.data.find(r => r._id === rewardId);
+        const rewards = rewardsResult.success ? rewardsResult.data : [];
+        const reward = rewards.find(r => r._id === rewardId);
         if (!reward) return;
 
         const user = AUTH.getCurrentUser();
@@ -48,6 +49,7 @@ Pages.rewards = {
             async () => {
                 const result = await AUTH.addScore(-reward.cost, `兑换奖励：${reward.name}`, 'reward');
                 if (result.success) {
+                    SOUND.redeem();
                     APP.showToast(`🎉 兑换成功！剩余 ${result.balance} 积分`);
                     this.render();
                 } else {
@@ -113,7 +115,7 @@ Pages.rewards = {
                 const icon = reward.icon || REWARD_ICONS[reward.category] || REWARD_ICONS.custom;
 
                 html += `
-                    <div class="reward-item" data-reward-id="${reward._id}">
+                    <div class="reward-item" data-reward-id="${reward._id}" draggable="true">
                         <div class="reward-icon">${icon}</div>
                         <div class="reward-info">
                             <div class="reward-name">${reward.name}</div>
@@ -149,25 +151,83 @@ Pages.rewards = {
             const rewardId = item.dataset.rewardId;
             const rewardName = item.querySelector('.reward-name')?.textContent || '';
 
-            // 触摸长按
-            item.addEventListener('touchstart', (e) => {
-                this.longPressTimer = setTimeout(() => {
-                    e.preventDefault();
-                    this.showRewardMenu(rewardId, rewardName);
-                }, 600);
-            }, { passive: false });
-            item.addEventListener('touchend', () => clearTimeout(this.longPressTimer));
-            item.addEventListener('touchmove', () => clearTimeout(this.longPressTimer));
-
-            // 鼠标长按
-            item.addEventListener('mousedown', (e) => {
-                if (e.button !== 0) return;
-                this.longPressTimer = setTimeout(() => {
-                    this.showRewardMenu(rewardId, rewardName);
-                }, 600);
+            // --- 拖拽排序 ---
+            item.addEventListener('dragstart', (e) => {
+                this._draggedItem = item;
+                item.style.opacity = '0.4';
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', rewardId);
             });
-            item.addEventListener('mouseup', () => clearTimeout(this.longPressTimer));
-            item.addEventListener('mouseleave', () => clearTimeout(this.longPressTimer));
+
+            item.addEventListener('dragend', () => {
+                item.style.opacity = '';
+                this._draggedItem = null;
+                container.querySelectorAll('.reward-item').forEach(el => {
+                    el.style.borderTop = '';
+                });
+            });
+
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (this._draggedItem && this._draggedItem !== item) {
+                    item.style.borderTop = '3px solid var(--primary)';
+                }
+            });
+
+            item.addEventListener('dragleave', () => {
+                item.style.borderTop = '';
+            });
+
+            item.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                item.style.borderTop = '';
+                if (!this._draggedItem || this._draggedItem === item) return;
+
+                const allItems = [...container.querySelectorAll('.reward-item')];
+                const fromIdx = allItems.indexOf(this._draggedItem);
+                const toIdx = allItems.indexOf(item);
+
+                if (fromIdx < toIdx) {
+                    item.after(this._draggedItem);
+                } else {
+                    item.before(this._draggedItem);
+                }
+
+                // 同步顺序到云端
+                const newRewardsResult = await dbQuery(COLLECTIONS.REWARDS, {});
+                const newRewards = newRewardsResult.success ? newRewardsResult.data : [];
+                const updatedOrder = [];
+                allItems.forEach((el, idx) => {
+                    updatedOrder.push({ id: el.dataset.rewardId, order: idx });
+                });
+                for (const entry of updatedOrder) {
+                    const reward = newRewards.find(r => r._id === entry.id);
+                    if (reward && reward.order !== entry.order) {
+                        await dbUpdate(COLLECTIONS.REWARDS, entry.id, { order: entry.order });
+                    }
+                }
+
+                APP.showToast('✅ 排序已保存');
+                SOUND.click();
+            });
+
+            // --- 双击打开菜单 ---
+            item.addEventListener('dblclick', () => {
+                SOUND.click();
+                this.showRewardMenu(rewardId, rewardName);
+            });
+
+            let lastTap = 0;
+            item.addEventListener('touchend', (e) => {
+                const now = Date.now();
+                if (now - lastTap < 400) {
+                    SOUND.click();
+                    this.showRewardMenu(rewardId, rewardName);
+                    e.preventDefault();
+                }
+                lastTap = now;
+            });
         });
     },
 
@@ -175,6 +235,7 @@ Pages.rewards = {
      * 长按弹出菜单（编辑 + 删除）
      */
     showRewardMenu(rewardId, rewardName) {
+        SOUND.click();
         APP.showModal({
             title: '奖励操作',
             body: `<p style="margin-bottom:12px;">${rewardName}</p>`,
@@ -211,6 +272,7 @@ Pages.rewards = {
      * 编辑奖励
      */
     editReward(rewardId, rewardName) {
+        SOUND.edit();
         APP.showFormModal({
             title: '✏️ 编辑奖励',
             fields: [
@@ -252,6 +314,7 @@ Pages.rewards = {
      * 显示添加奖励弹窗
      */
     showAddModal() {
+        SOUND.edit();
         APP.showFormModal({
             title: '🎁 添加新奖励',
             fields: [

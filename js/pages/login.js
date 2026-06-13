@@ -4,26 +4,14 @@
 
 Pages.login = {
     /**
-     * 初始化登录页
+     * 初始化登录页（不绑定事件，登录按钮由 APP.init() 统一绑定）
      */
     init() {
         const usernameInput = document.getElementById('login-username');
-        const loginBtn = document.getElementById('btn-login');
-
-        if (!loginBtn) return;
-
-        // 回车键登录
+        // 自动聚焦
         if (usernameInput) {
-            usernameInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    this.handleLogin();
-                }
-            });
-            // 自动聚焦
             usernameInput.focus();
         }
-
-        loginBtn.addEventListener('click', () => this.handleLogin());
     },
 
     /**

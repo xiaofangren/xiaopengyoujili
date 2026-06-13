@@ -19,23 +19,28 @@ async function getCompletedToday() {
     if (!user || !user._id) return new Set();
 
     try {
-        // 查询今天所有 task 类型的日志
+        // 只查今天的日志
+        const today = new Date().toLocaleDateString('sv-SE');
         const result = await dbQuery(COLLECTIONS.LOGS, {
             userId: user._id,
             type: 'task',
         });
         if (result.success && result.data.length > 0) {
-            const today = new Date().toISOString().slice(0, 10);
             const names = [];
             result.data.forEach(log => {
-                // 用 _createTime 或 _updateTime 判断是否今天
-                const time = log._createTime || log._updateTime || '';
-                const isToday = time.startsWith(today);
+                const localDate = log.localDate || '';
+                let isToday = localDate === today;
+                if (!isToday) {
+                    const time = log.createTime || log._createTime || '';
+                    if (time) {
+                        const logTime = new Date(time);
+                        isToday = logTime.toLocaleDateString('sv-SE') === today;
+                    }
+                }
                 if (isToday && log.reason && log.reason.startsWith('完成任务：')) {
                     names.push(log.reason.replace('完成任务：', ''));
                 }
             });
-            console.log('📋 今日已完成任务:', names);
             return new Set(names);
         }
     } catch (e) {
@@ -101,42 +106,27 @@ Pages.tasks = {
                 </div>
             `;
         } else {
-            const grouped = {};
-            tasks.forEach(task => {
-                const cat = task.category || 'custom';
-                if (!grouped[cat]) grouped[cat] = [];
-                grouped[cat].push(task);
-            });
-
             html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">';
             html += '<span style="font-size:0.9rem; color:var(--text-secondary);" id="tasks-today-count-el">📅 今天已完成 ' + this.completedCache.size + ' 个</span>';
             html += '</div>';
 
-            Object.keys(grouped).forEach(cat => {
+            tasks.forEach(task => {
+                const cat = task.category || 'custom';
                 const catInfo = TASK_CATEGORIES[cat] || TASK_CATEGORIES.custom;
-                const catLabel = cat === 'study' ? '学习' : cat === 'life' ? '生活' : cat === 'sports' ? '运动' : cat === 'behavior' ? '行为' : cat === 'custom' ? '自定义' : cat;
+                const isCompleted = this.completedCache.has(task.name);
                 html += `
-                    <div style="margin-top:16px; margin-bottom:8px;">
-                        <span style="font-size:0.9rem; color:var(--text-secondary);">${catInfo.icon} ${catLabel}</span>
+                    <div class="task-item ${isCompleted ? 'completed' : ''}" data-task-id="${task._id}" data-task-name="${task.name}" draggable="true">
+                        <div class="task-icon" style="background:${catInfo.color}20;">
+                            ${task.icon || catInfo.icon}
+                        </div>
+                        <div class="task-info">
+                            <div class="task-name">${task.name}</div>
+                            <div class="task-desc">${task.description || ''}</div>
+                        </div>
+                        <div class="task-score">+${task.score}</div>
+                        <div class="task-check ${isCompleted ? 'checked' : ''}" data-task-name="${task.name}" style="cursor:${isCompleted ? 'not-allowed' : 'pointer'}">${isCompleted ? '✓' : ''}</div>
                     </div>
                 `;
-
-                grouped[cat].forEach(task => {
-                    const isCompleted = this.completedCache.has(task.name);
-                    html += `
-                        <div class="task-item ${isCompleted ? 'completed' : ''}" data-task-id="${task._id}" data-task-name="${task.name}">
-                            <div class="task-icon" style="background:${catInfo.color}20;">
-                                ${task.icon || catInfo.icon}
-                            </div>
-                            <div class="task-info">
-                                <div class="task-name">${task.name}</div>
-                                <div class="task-desc">${task.description || ''}</div>
-                            </div>
-                            <div class="task-score">+${task.score}</div>
-                            <div class="task-check ${isCompleted ? 'checked' : ''}" data-task-name="${task.name}" style="cursor:${isCompleted ? 'not-allowed' : 'pointer'}">${isCompleted ? '✓' : ''}</div>
-                        </div>
-                    `;
-                });
             });
         }
 
@@ -160,44 +150,151 @@ Pages.tasks = {
             const taskId = item.dataset.taskId;
             const taskName = item.dataset.taskName;
 
-            item.addEventListener('touchstart', (e) => {
-                self.longPressTimer = setTimeout(() => {
-                    e.preventDefault();
-                    self.showTaskMenu(taskId, taskName);
-                }, 600);
-            }, { passive: false });
-            item.addEventListener('touchend', () => clearTimeout(self.longPressTimer));
-            item.addEventListener('touchmove', () => clearTimeout(self.longPressTimer));
-
-            item.addEventListener('mousedown', (e) => {
-                if (e.button !== 0) return;
-                self.longPressTimer = setTimeout(() => {
-                    self.showTaskMenu(taskId, taskName);
-                }, 600);
+            // --- 拖拽排序 ---
+            item.addEventListener('dragstart', (e) => {
+                self._draggedItem = item;
+                item.style.opacity = '0.4';
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', taskId);
             });
-            item.addEventListener('mouseup', () => clearTimeout(self.longPressTimer));
-            item.addEventListener('mouseleave', () => clearTimeout(self.longPressTimer));
+
+            item.addEventListener('dragend', () => {
+                item.style.opacity = '';
+                self._draggedItem = null;
+                // 清除所有高亮
+                container.querySelectorAll('.task-item').forEach(el => {
+                    el.style.borderTop = '';
+                });
+            });
+
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (self._draggedItem && self._draggedItem !== item) {
+                    item.style.borderTop = '3px solid var(--primary)';
+                }
+            });
+
+            item.addEventListener('dragleave', () => {
+                item.style.borderTop = '';
+            });
+
+            item.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                item.style.borderTop = '';
+                if (!self._draggedItem || self._draggedItem === item) return;
+
+                // 交换 DOM 位置
+                const allItems = [...container.querySelectorAll('.task-item')];
+                const fromIdx = allItems.indexOf(self._draggedItem);
+                const toIdx = allItems.indexOf(item);
+
+                if (fromIdx < toIdx) {
+                    item.after(self._draggedItem);
+                } else {
+                    item.before(self._draggedItem);
+                }
+
+                // 从云端同步顺序：获取新的 DOM 顺序，逐个更新云端 order 字段
+                const newTasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+                const newTasks = newTasksResult.success ? newTasksResult.data : [];
+                const updatedOrder = [];
+                allItems.forEach((el, idx) => {
+                    updatedOrder.push({ id: el.dataset.taskId, order: idx });
+                });
+
+                // 只更新有变化的
+                for (const entry of updatedOrder) {
+                    const task = newTasks.find(t => t._id === entry.id);
+                    if (task && task.order !== entry.order) {
+                        await dbUpdate(COLLECTIONS.TASKS, entry.id, { order: entry.order });
+                    }
+                }
+
+                APP.showToast('✅ 排序已保存');
+                SOUND.click();
+            });
+
+            // --- 双击打开菜单 ---
+            item.addEventListener('dblclick', () => {
+                SOUND.click();
+                self.showTaskMenu(taskId, taskName);
+            });
+
+            // 触摸双击：通过快速两次 tap 模拟
+            let lastTap = 0;
+            item.addEventListener('touchend', (e) => {
+                const now = Date.now();
+                if (now - lastTap < 400) {
+                    SOUND.click();
+                    self.showTaskMenu(taskId, taskName);
+                    e.preventDefault();
+                }
+                lastTap = now;
+            });
         });
 
         container.querySelectorAll('.task-check').forEach(check => {
-            if (check.classList.contains('checked')) return;
+            const taskItem = check.closest('.task-item');
+            const taskId = taskItem.dataset.taskId;
+            const taskName = taskItem.dataset.taskName;
+            const isCompleted = check.classList.contains('checked');
 
+            // --- 已完成的勾子：点击撤回 ---
+            if (isCompleted) {
+                check.style.cursor = 'pointer';
+                check.addEventListener('click', async () => {
+                    // 先查任务数据拿到 score
+                    const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+                    const task = tasksResult.data?.find(t => t._id === taskId);
+                    if (!task) {
+                        APP.showToast('任务不存在');
+                        return;
+                    }
+                    APP.showConfirm('撤回任务', `确定要撤回「${task.name}」吗？将扣除 ${task.score} 积分。`, async () => {
+                        // 删除今日该任务的 log 记录
+                        const logsResult = await dbQuery(COLLECTIONS.LOGS, {
+                            userId: AUTH.getCurrentUser()._id,
+                            type: 'task',
+                        });
+                        if (logsResult.success) {
+                            const today = new Date().toLocaleDateString('sv-SE');
+                            const todayLogs = logsResult.data.filter(log => {
+                                const localDate = log.localDate || '';
+                                return localDate === today && log.reason === '完成任务：' + taskName;
+                            });
+                            if (todayLogs.length > 0) {
+                                const logToDelete = todayLogs[todayLogs.length - 1];
+                                await dbDelete(COLLECTIONS.LOGS, logToDelete._id);
+
+                                // 手动扣积分，不调用 AUTH.addScore（避免产生新的"撤回"记录）
+                                const user = AUTH.getCurrentUser();
+                                const newScore = Math.max(0, user.score - task.score);
+                                await dbUpdate(COLLECTIONS.USERS, user._id, { score: newScore });
+                                user.score = newScore;
+                                AUTH._saveToLocalStorage();
+                            }
+                        }
+
+                        // UI 更新
+                        self.completedCache.delete(taskName);
+                        // 直接重新渲染整个列表，确保事件处理器与状态一致
+                        await self.render();
+                        APP.showToast('已撤回，扣除 ' + task.score + ' 积分');
+                    });
+                });
+                return;
+            }
+
+            // --- 未完成的勾子：点击完成 ---
             check.addEventListener('click', async function handler() {
                 this.removeEventListener('click', handler);
                 this.style.pointerEvents = 'none';
 
-                const taskItem = this.closest('.task-item');
-                const taskId = taskItem.dataset.taskId;
-                const taskName = taskItem.dataset.taskName;
-
-                if (self.completedCache.has(taskName)) {
-                    APP.showToast('今天已完成过这个任务了 ✓');
-                    return;
-                }
-
                 // 再次从云端验证，防止多设备重复
                 const cloudCompleted = await getCompletedToday();
                 if (cloudCompleted.has(taskName)) {
+                    SOUND.fail();
                     self.completedCache = cloudCompleted;
                     APP.showToast('今天已完成过这个任务了 ✓');
                     this.classList.add('checked');
@@ -209,6 +306,7 @@ Pages.tasks = {
                 const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
                 const task = tasksResult.data?.find(t => t._id === taskId);
                 if (!task) {
+                    SOUND.fail();
                     APP.showToast('任务不存在');
                     this.style.pointerEvents = '';
                     return;
@@ -216,15 +314,63 @@ Pages.tasks = {
 
                 const result = await AUTH.addScore(task.score, '完成任务：' + taskName, 'task');
                 if (result.success) {
+                    SOUND.checkTask();
                     // 更新本地缓存
                     self.completedCache.add(taskName);
 
                     // 更新 DOM
                     this.classList.add('checked');
                     this.textContent = '✓';
-                    this.style.cursor = 'not-allowed';
+                    this.style.cursor = 'pointer';
+                    this.style.pointerEvents = '';  // 恢复点击，否则撤回事件无法触发
 
-                    // 实时刷新积分显示 —— 从 localStorage 读取最新用户数据
+                    // 绑定撤回事件：完成后立即绑定，不需要切换页面就能撤回
+                    const checkEl = this;
+                    const taskItemEl = checkEl.closest('.task-item');
+                    checkEl.addEventListener('click', async () => {
+                        const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+                        const undoneTask = tasksResult.data?.find(t => t._id === taskId);
+                        if (!undoneTask) {
+                            APP.showToast('任务不存在');
+                            return;
+                        }
+                        APP.showConfirm('撤回任务', `确定要撤回「${undoneTask.name}」吗？将扣除 ${undoneTask.score} 积分。`, async () => {
+                            const logsResult = await dbQuery(COLLECTIONS.LOGS, {
+                                userId: AUTH.getCurrentUser()._id,
+                                type: 'task',
+                            });
+                            if (logsResult.success) {
+                                const today = new Date().toLocaleDateString('sv-SE');
+                                const todayLogs = logsResult.data.filter(log => {
+                                    const time = log._createTime || log._updateTime || '';
+                                    return time.startsWith(today) && log.reason === '完成任务：' + taskName;
+                                });
+                                if (todayLogs.length > 0) {
+                                    const logToDelete = todayLogs[todayLogs.length - 1];
+                                    await dbDelete(COLLECTIONS.LOGS, logToDelete._id);
+
+                                    const user = AUTH.getCurrentUser();
+                                    const newScore = Math.max(0, user.score - undoneTask.score);
+                                    await dbUpdate(COLLECTIONS.USERS, user._id, { score: newScore });
+                                    user.score = newScore;
+                                    AUTH._saveToLocalStorage();
+                                }
+                            }
+                            self.completedCache.delete(taskName);
+                            checkEl.classList.remove('checked');
+                            checkEl.textContent = '';
+                            checkEl.style.cursor = 'pointer';
+                            taskItemEl.classList.remove('completed');
+                            const countEl = document.getElementById('tasks-today-count-el');
+                            if (countEl) {
+                                countEl.textContent = '📅 今天已完成 ' + self.completedCache.size + ' 个';
+                            }
+                            await self.render();
+                            APP.showToast('已撤回，扣除 ' + undoneTask.score + ' 积分');
+                        });
+                    });
+
+                    // 实时刷新积分显示
                     const userEl = document.getElementById('tasks-score-el');
                     if (userEl) {
                         const cached = localStorage.getItem(AUTH.STORAGE_KEY);
@@ -243,6 +389,7 @@ Pages.tasks = {
                     }
 
                     APP.showToast('+' + task.score + ' 积分！🎉');
+                    SOUND.scoreUp();
                 } else {
                     APP.showToast('积分添加失败');
                     this.style.pointerEvents = '';
@@ -253,6 +400,7 @@ Pages.tasks = {
     },
 
     showTaskMenu(taskId, taskName) {
+        SOUND.click();
         APP.showModal({
             title: '任务操作',
             body: '<p style="margin-bottom:12px;">' + taskName + '</p>',
@@ -283,6 +431,7 @@ Pages.tasks = {
     },
 
     editTask(taskId, taskName) {
+        SOUND.edit();
         APP.showFormModal({
             title: '✏️ 编辑任务',
             fields: [
@@ -310,6 +459,7 @@ Pages.tasks = {
     },
 
     showAddModal() {
+        SOUND.edit();
         APP.showFormModal({
             title: '➕ 添加新任务',
             fields: [
@@ -338,6 +488,7 @@ Pages.tasks = {
     },
 
     showAddScoreModal() {
+        SOUND.edit();
         APP.showFormModal({
             title: '➕ 手动添加积分',
             fields: [

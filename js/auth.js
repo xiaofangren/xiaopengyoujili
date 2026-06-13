@@ -26,8 +26,8 @@ const AUTH = {
                     const verifyResult = await dbGetById(COLLECTIONS.USERS, cachedUser._id);
                     if (verifyResult.success && verifyResult.data) {
                         this.currentUser = verifyResult.data;
-                        // 检查跨天
-                        const today = new Date().toISOString().slice(0, 10);
+                        // 检查跨天（使用本地时间，不是 UTC）
+                        const today = new Date().toLocaleDateString('sv-SE');
                         if (this.currentUser.lastDate !== today) {
                             this.currentUser.completedToday = 0;
                             this.currentUser.lastDate = today;
@@ -53,8 +53,8 @@ const AUTH = {
             this.currentUser = result.data[0];
             this._ensureFields(this.currentUser);
 
-            // 检查跨天
-            const today = new Date().toISOString().slice(0, 10);
+            // 检查跨天（使用本地时间，不是 UTC）
+            const today = new Date().toLocaleDateString('sv-SE');
             if (this.currentUser.lastDate !== today) {
                 this.currentUser.completedToday = 0;
                 this.currentUser.lastDate = today;
@@ -221,8 +221,10 @@ const AUTH = {
 
             if (isPositive) {
                 updateData.totalEarned = user.totalEarned + absAmount;
-                updateData.taskCount = user.taskCount + 1;
-                updateData.completedToday = user.completedToday + 1;
+                if (type === 'task') {
+                    updateData.taskCount = user.taskCount + 1;
+                    updateData.completedToday = user.completedToday + 1;
+                }
             } else {
                 updateData.totalSpent = user.totalSpent + absAmount;
             }
@@ -234,22 +236,26 @@ const AUTH = {
             user.score = updateData.score;
             if (isPositive) {
                 user.totalEarned = updateData.totalEarned;
-                user.taskCount = updateData.taskCount;
-                user.completedToday = updateData.completedToday;
+                if (type === 'task') {
+                    user.taskCount = updateData.taskCount;
+                    user.completedToday = updateData.completedToday;
+                }
             } else {
                 user.totalSpent = updateData.totalSpent;
             }
             this._saveToLocalStorage();
 
             // 记录积分日志
-            await dbAdd(COLLECTIONS.LOGS, {
+            const logTime = new Date();
+            const logResult = await dbAdd(COLLECTIONS.LOGS, {
                 userId: user._id,
                 username: user.username,
                 amount: amount,
                 reason: reason,
                 type: type,
                 balanceAfter: user.score,
-                _createTime: new Date().toISOString(),
+                createTime: logTime.toISOString(),
+                localDate: logTime.toLocaleDateString('sv-SE'),
             });
 
             console.log(`📊 积分变动: ${isPositive ? '+' : ''}${amount} (${reason}), 当前: ${user.score}`);
@@ -277,7 +283,8 @@ const AUTH = {
                 this.currentUser = result.data;
                 this._ensureFields(this.currentUser);
 
-                const today = new Date().toISOString().slice(0, 10);
+                // 检查跨天（使用本地时间，不是 UTC）
+                const today = new Date().toLocaleDateString('sv-SE');
                 if (this.currentUser.lastDate !== today) {
                     this.currentUser.completedToday = 0;
                     this.currentUser.lastDate = today;
@@ -298,7 +305,8 @@ const AUTH = {
                 this.currentUser = result.data[0];
                 this._ensureFields(this.currentUser);
 
-                const today = new Date().toISOString().slice(0, 10);
+                // 检查跨天（使用本地时间，不是 UTC）
+                const today = new Date().toLocaleDateString('sv-SE');
                 if (this.currentUser.lastDate !== today) {
                     this.currentUser.completedToday = 0;
                     this.currentUser.lastDate = today;

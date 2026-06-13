@@ -1,17 +1,8 @@
 // ============================================
-// 小孩激励积分 - 幸运抽奖
+// 小孩激励积分 - 拉霸机抽奖
 // ============================================
 
 Pages.lottery = Pages.lottery || {};
-
-// 奖品配置
-const DEFAULT_PRIZES = [
-    { name: '🌟 大奖', score: 10, color: '#FF6B9D', probability: 5 },
-    { name: '🎁 小奖', score: 6, color: '#4ECDC4', probability: 60 },
-    { name: '✨ 幸运奖', score: 8, color: '#FFE66D', probability: 15 },
-    { name: '💫 谢谢参与', score: 2, color: '#A8E6CF', probability: 10 },
-    { name: '💰 再来一次', score: 5, color: '#C9B1FF', probability: 10 },
-];
 
 // 每次抽奖消耗积分
 const LOTTERY_COST = 5;
@@ -19,52 +10,159 @@ const LOTTERY_COST = 5;
 // 每日抽奖次数限制
 const DAILY_LIMIT = 3;
 
+// 四张奖品图片
+const SLOT_IMAGES = [
+    '图片/fWWZkBVFC.jpeg',
+    '图片/转盘奖项文字居中问题.png',
+    '图片/转盘奖项文字居中问题 (1).png',
+    '图片/转盘奖项文字居中问题 (2).png',
+];
+
+// 中奖概率表
+const PRIZE_PROBS = [
+    { name: '大奖',    score: 10, match: 4, prob: 5  },  // 四个一样
+    { name: '幸运奖',  score: 8,  match: 3, prob: 15 },  // 三个一样
+    { name: '运气奖',  score: 7,  match: 2, prob: 10 },  // 两队一样（AABB）
+    { name: '小奖',    score: 6,  match: 2, prob: 50 },  // 两个一样
+    { name: '谢谢参与', score: 4,  match: 0, prob: 10 },  // 全都不一樣
+];
+
+/**
+ * 根据概率表随机选择一个奖品配置
+ */
+function randomPrize() {
+    const total = PRIZE_PROBS.reduce((s, p) => s + p.prob, 0);
+    let r = Math.random() * total;
+    for (const p of PRIZE_PROBS) {
+        r -= p.prob;
+        if (r <= 0) return p;
+    }
+    return PRIZE_PROBS[PRIZE_PROBS.length - 1];
+}
+
+/**
+ * 根据中奖匹配数生成四列的符号索引
+ * match=4: 全部相同  match=3: 三个相同  match=2+team=2: 两队一样  match=2: 两个相同  match=0: 全部不同
+ */
+function generateResult(match, team = false) {
+    const results = [0, 1, 2, 3]; // 四列
+
+    if (match === 4) {
+        // 四个一样，随机选一个符号
+        const idx = Math.floor(Math.random() * 4);
+        results[0] = results[1] = results[2] = results[3] = idx;
+    } else if (match === 3) {
+        // 三个一样：先随机选一个符号出现三次，另一个出现一次
+        const sameIdx = Math.floor(Math.random() * 4);
+        const otherIdx = Math.floor(Math.random() * 3);
+        // 随机选一个位置放不同的
+        const diffPos = Math.floor(Math.random() * 4);
+        for (let i = 0; i < 4; i++) {
+            results[i] = i === diffPos ? otherIdx : sameIdx;
+        }
+    } else if (team === true) {
+        // 两队一样：如 AABB、ABAB、ABBA 三种模式之一
+        // 选两个不同的符号索引
+        const idxA = Math.floor(Math.random() * 4);
+        let idxB;
+        do { idxB = Math.floor(Math.random() * 4); } while (idxB === idxA);
+
+        // 随机选一种配对模式
+        const patterns = [
+            [0, 0, 1, 1],  // AABB
+            [0, 1, 0, 1],  // ABAB
+            [0, 1, 1, 0],  // ABBA
+        ];
+        const pattern = patterns[Math.floor(Math.random() * patterns.length)];
+        results[0] = pattern[0] === 0 ? idxA : idxB;
+        results[1] = pattern[1] === 0 ? idxA : idxB;
+        results[2] = pattern[2] === 0 ? idxA : idxB;
+        results[3] = pattern[3] === 0 ? idxA : idxB;
+    } else if (match === 2) {
+        // 两个一样：先随机选一对位置放相同符号，另两个位置放不同的
+        // 选哪两个位置放相同
+        const samePositions = [];
+        while (samePositions.length < 2) {
+            const pos = Math.floor(Math.random() * 4);
+            if (!samePositions.includes(pos)) samePositions.push(pos);
+        }
+        const sameIdx = Math.floor(Math.random() * 4);
+        // 另两个位置各选一个不同的符号
+        const otherIndices = [];
+        for (let i = 0; i < 4; i++) {
+            if (!samePositions.includes(i)) {
+                let idx;
+                do { idx = Math.floor(Math.random() * 4); } while (idx === sameIdx || otherIndices.includes(idx));
+                otherIndices.push(idx);
+            }
+        }
+        let otherIdx = 0;
+        for (let i = 0; i < 4; i++) {
+            if (samePositions.includes(i)) {
+                results[i] = sameIdx;
+            } else {
+                results[i] = otherIndices[otherIdx++];
+            }
+        }
+    } else if (match === 0) {
+        // 四个全不同
+        const indices = [0, 1, 2, 3];
+        // 洗牌
+        for (let i = indices.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        results[0] = indices[0];
+        results[1] = indices[1];
+        results[2] = indices[2];
+        results[3] = indices[3];
+    }
+
+    return results;
+}
+
 Pages.lottery = {
     isSpinning: false,
     spinsRemaining: DAILY_LIMIT,
     todayLotteryCount: 0,
 
     /**
-     * 初始化抽奖页
+     * 初始化
      */
     async init() {
         this.render();
     },
 
     /**
-     * 渲染抽奖页面
+     * 渲染页面
      */
     async render() {
         const container = document.getElementById('lottery-content');
         if (!container) return;
 
         const user = AUTH.getCurrentUser();
-        console.log('🔍 lottery.js - getCurrentUser:', user);
         if (!user) {
             container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">😴</div><p>请先登录</p></div>';
             return;
         }
 
-        // 获取用户今日抽奖次数
-        const today = new Date().toISOString().slice(0, 10);
+        // 统计今日抽奖次数（查当天消耗记录）
+        const today = new Date().toLocaleDateString('sv-SE');
         const logsResult = await dbQuery(COLLECTIONS.LOGS, {
             userId: user._id,
             type: 'lottery',
         });
-
         this.todayLotteryCount = 0;
         if (logsResult.success) {
-            this.todayLotteryCount = logsResult.data.filter(log =>
-                log._createTime && log._createTime.startsWith(today) && log.reason === '抽奖消耗'
-            ).length;
+            this.todayLotteryCount = logsResult.data.filter(log => {
+                // 优先用 localDate 精确匹配
+                if (log.localDate === today && log.reason === '抽奖消耗') return true;
+                // 降级：用 createTime 做时区转换
+                const time = log.createTime || log._createTime || '';
+                return time && time.startsWith(today) && log.reason === '抽奖消耗';
+            }).length;
         }
-
         this.spinsRemaining = Math.max(0, DAILY_LIMIT - this.todayLotteryCount);
-
-        // 构建转盘选项
-        let wheelOptions = DEFAULT_PRIZES.map(prize =>
-            `${prize.name} (${prize.score})`
-        ).join(', ');
 
         container.innerHTML = `
             <!-- 今日抽奖次数 -->
@@ -87,39 +185,54 @@ Pages.lottery = {
                 <div class="score-label">当前积分</div>
             </div>
 
-            <!-- 转盘 -->
-            <div class="lottery-container">
-                <div class="lottery-wheel-wrapper">
-                    <div class="lottery-wheel" id="lottery-wheel">
-                        ${DEFAULT_PRIZES.map((prize, i) => {
-                            const segmentAngle = 360 / DEFAULT_PRIZES.length;
-                            const angle = segmentAngle * i + segmentAngle / 2;
-                            return `<span class="wheel-label" style="transform:rotate(${angle}deg) translate(95px) rotate(-${angle}deg) translate(-50%, -50%); display:block; width:auto; text-align:center; min-width:80px;">${prize.name}<br>+${prize.score}</span>`;
-                        }).join('')}
+            <!-- 拉霸机 -->
+            <div class="slot-machine" id="slot-machine">
+                <div class="slot-frame">
+                    <div class="slot-reel" id="reel-0">
+                        <div class="slot-window">
+                            ${this._symbolHTML(SLOT_IMAGES[0])}
+                        </div>
+                    </div>
+                    <div class="slot-reel" id="reel-1">
+                        <div class="slot-window">
+                            ${this._symbolHTML(SLOT_IMAGES[1])}
+                        </div>
+                    </div>
+                    <div class="slot-reel" id="reel-2">
+                        <div class="slot-window">
+                            ${this._symbolHTML(SLOT_IMAGES[2])}
+                        </div>
+                    </div>
+                    <div class="slot-reel" id="reel-3">
+                        <div class="slot-window">
+                            ${this._symbolHTML(SLOT_IMAGES[3])}
+                        </div>
                     </div>
                 </div>
-                <div class="lottery-pointer"></div>
-                <div class="lottery-result" id="lottery-result"></div>
+                <!-- 中奖提示 -->
+                <div class="slot-result" id="slot-result"></div>
             </div>
 
             <!-- 抽奖按钮 -->
-            <div style="text-align:center; margin-top:24px;">
+            <div style="text-align:center; margin-top:16px;">
                 <button id="btn-draw" class="btn btn-primary btn-large" style="width:auto; padding:16px 48px; font-size:1.2rem;">
-                    🎰 开始抽奖 (${LOTTERY_COST}积分)
+                    🎰 开始拉霸 (${LOTTERY_COST}积分)
                 </button>
             </div>
 
-            <!-- 奖品说明 -->
+            <!-- 规则说明 -->
             <div class="card" style="margin-top:16px;">
                 <div class="card-header">
-                    <span class="card-title">📖 奖品说明</span>
+                    <span class="card-title">📖 玩法说明</span>
                 </div>
-                ${DEFAULT_PRIZES.map(prize => `
-                    <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #F0F0F0;">
-                        <span>${prize.name}</span>
-                        <span style="color:var(--accent-orange); font-weight:600;">+${prize.score} 积分</span>
-                    </div>
-                `).join('')}
+                <div style="padding:4px 0; font-size:0.9rem; color:var(--text-secondary); line-height:1.8;">
+                    <div>🎯 四列图案相同即中奖</div>
+                    <div>✨ 四个一样 = 大奖 10 积分 (5%)</div>
+                    <div>🌟 三个一样 = 幸运奖 8 积分 (15%)</div>
+                    <div>🎁 两队一样 = 运气奖 7 积分 (10%)</div>
+                    <div>🎉 两个一样 = 小奖 6 积分 (50%)</div>
+                    <div>💫 全都不一样 = 谢谢参与 4 积分 (10%)</div>
+                </div>
             </div>
 
             ${this.spinsRemaining === 0 ? `
@@ -131,38 +244,29 @@ Pages.lottery = {
             ` : ''}
         `;
 
-        // 绑定转盘标签（让标签随转盘旋转）
-        const wheelLabels = container.querySelectorAll('.wheel-label');
-        wheelLabels.forEach(label => {
-            label.style.position = 'absolute';
-            label.style.left = '50%';
-            label.style.top = '50%';
-            label.style.fontSize = '0.8rem';
-            label.style.fontWeight = '700';
-            label.style.whiteSpace = 'nowrap';
-            label.style.color = '#fff';
-            label.style.textShadow = '0 2px 4px rgba(0,0,0,0.5)';
-            label.style.cursor = 'default';
-            label.style.userSelect = 'none';
-            label.style.lineHeight = '1.3';
-            label.style.width = '80px';
-            label.style.padding = '2px 0';
-        });
-
-        // 绑定抽奖按钮（去除之前的事件监听）
+        // 绑定按钮
         const btn = document.getElementById('btn-draw');
         if (btn) {
-            // 克隆按钮以移除旧的事件监听器
             const newBtn = btn.cloneNode(true);
             btn.parentNode.replaceChild(newBtn, btn);
             if (this.spinsRemaining > 0) {
-                newBtn.addEventListener('click', () => this.startSpin());
+                newBtn.addEventListener('click', () => {
+                    SOUND.lotteryClick();
+                    this.startSpin();
+                });
             }
         }
     },
 
     /**
-     * 开始转动
+     * 生成单个符号的 HTML（图片）
+     */
+    _symbolHTML(imgSrc) {
+        return `<div class="slot-symbol-img"><img src="${imgSrc}" alt="symbol" /></div>`;
+    },
+
+    /**
+     * 开始抽奖
      */
     startSpin() {
         if (this.isSpinning) return;
@@ -178,78 +282,128 @@ Pages.lottery = {
         }
 
         this.isSpinning = true;
+        SOUND.slotSpin();
         const btn = document.getElementById('btn-draw');
         if (btn) {
             btn.disabled = true;
             btn.style.opacity = '0.5';
         }
 
-        // 随机选择奖品
-        const prizeIndex = this.randomWeightedIndex();
-        const prize = DEFAULT_PRIZES[prizeIndex];
+        // 1. 选奖品（保持原概率）
+        const prize = randomPrize();
+        const matchCount = prize.match;
+        const isTeam = (prize.name === '运气奖'); // 两队一样
+        const results = generateResult(matchCount, isTeam);
 
-        // 计算旋转角度
-        const segments = DEFAULT_PRIZES.length;
-        const segmentAngle = 360 / segments;
-        // 指针在上方，转盘顺时针旋转
-        const centerAngle = prizeIndex * segmentAngle + segmentAngle / 2;
-        const targetAngle = 360 - centerAngle;
-        const totalRotate = 360 * 5 + targetAngle; // 转5圈
+        // 2. 扣除积分
+        AUTH.addScore(-LOTTERY_COST, '抽奖消耗', 'lottery');
 
-        const wheel = document.getElementById('lottery-wheel');
-        if (wheel) {
-            wheel.style.transform = `rotate(${totalRotate}deg)`;
-        }
+        // 3. 四列依次启动、依次停止：前一列真正停下后，再启动下一列
+        const settleGap = 200; // 一列停下后，间隔 200ms 再启动下一列
 
-        // 动画结束后处理
-        setTimeout(async () => {
-            // 扣除积分
-            const deductResult = await AUTH.addScore(-LOTTERY_COST, '抽奖消耗', 'lottery');
+        const spinChain = [0, 1, 2, 3].reduce((chain, col) => {
+            return chain.then(() => {
+                const reel = document.getElementById(`reel-${col}`);
+                const windowEl = reel.querySelector('.slot-window');
+                return this._spinReel(reel, windowEl, results[col]);
+            });
+        }, Promise.resolve());
 
-            // 增加奖品积分
-            if (prize.score > 0) {
-                const addResult = await AUTH.addScore(prize.score, `抽奖获得：${prize.name}`, 'lottery');
-            }
+        // 等待所有列完成
+        spinChain.then(() => {
+            // 全部停下后，等待 settleGap 再结算
+            setTimeout(async () => {
+                // 增加奖品积分
+                AUTH.addScore(prize.score, `抽奖获得：拉霸 ${prize.name}`, 'lottery');
 
-            this.spinsRemaining--;
-            this.isSpinning = false;
+                this.spinsRemaining--;
+                this.isSpinning = false;
 
-            const btn2 = document.getElementById('btn-draw');
-            if (btn2) {
-                btn2.disabled = false;
-                btn2.style.opacity = '1';
-            }
+                const btn2 = document.getElementById('btn-draw');
+                if (btn2) {
+                    btn2.disabled = false;
+                    btn2.style.opacity = '1';
+                }
 
-            // 显示结果
-            const resultEl = document.getElementById('lottery-result');
-            if (resultEl) {
-                resultEl.textContent = `🎉 恭喜获得：${prize.name} (+${prize.score}积分)`;
-                resultEl.classList.add('animate-pop');
-            }
+                // 显示结果
+                const resultEl = document.getElementById('slot-result');
+                if (resultEl) {
+                    const matchNames = { 4: '四个一样', 3: '三个一样', 2: '两队一样', 0: '全都不一樣' };
+                    if (prize.score >= 6) {
+                        SOUND.celebrate();
+                        resultEl.innerHTML = `<span style="color:var(--primary); font-size:1.3rem;">🎉 ${matchNames[matchCount]} — ${prize.name}！+${prize.score} 积分</span>`;
+                    } else {
+                        SOUND.slotLose();
+                        resultEl.innerHTML = `<span style="color:var(--text-secondary);">💫 ${matchNames[matchCount]} — ${prize.name}！+${prize.score} 积分</span>`;
+                    }
+                }
 
-            // 重新渲染
-            this.render();
+                APP.showToast(prize.score >= 6
+                    ? `🎉 ${prize.name}！获得 ${prize.score} 积分`
+                    : `谢谢参与！获得 ${prize.score} 积分 💫`
+                );
 
-            if (prize.score === 0) {
-                APP.showToast('谢谢参与，下次加油！💪');
-            } else {
-                APP.showToast(`🎉 获得 ${prize.name} (+${prize.score}积分)`);
-            }
-        }, 3500);
+                // 3秒后重新渲染恢复原始状态
+                setTimeout(() => {
+                    this.render();
+                }, 3000);
+            }, settleGap);
+        });
     },
 
     /**
-     * 加权随机选择奖品索引
-     * @returns {number} 奖品索引
+     * 单列滚动动画（返回 Promise，完成后链式调用下一列）
      */
-    randomWeightedIndex() {
-        const total = DEFAULT_PRIZES.reduce((sum, p) => sum + p.probability, 0);
-        let random = Math.random() * total;
+    _spinReel(reel, windowEl, targetImageIndex) {
+        return new Promise(resolve => {
+            const totalFrames = 40; // 总帧数，增加后更流畅
+            const baseInterval = 50; // 基础帧间隔 50ms
 
-        for (let i = 0; i < DEFAULT_PRIZES.length; i++) {
-            random -= DEFAULT_PRIZES[i].probability;
-            if (random <= 0) return i;
-        }
-        return DEFAULT_PRIZES.length - 1;
+            let currentFrame = 0;
+            let lastIndex = -1;
+
+            // 构建滚动序列：中间随机，最后停在目标
+            const sequence = [];
+            for (let i = 0; i < totalFrames - 1; i++) {
+                let idx;
+                do {
+                    idx = Math.floor(Math.random() * SLOT_IMAGES.length);
+                } while (idx === lastIndex);
+                lastIndex = idx;
+                sequence.push(SLOT_IMAGES[idx]);
+            }
+            sequence.push(SLOT_IMAGES[targetImageIndex]);
+
+            // 减速曲线：前段快，后段逐渐慢下来
+            function getInterval(frameIndex) {
+                const progress = frameIndex / totalFrames;
+                if (progress < 0.6) {
+                    return baseInterval; // 前60% 正常速度
+                } else if (progress < 0.85) {
+                    return baseInterval + 30; // 中间减速
+                } else {
+                    return baseInterval + 80; // 最后15% 很慢，模拟惯性
+                }
+            }
+
+            // 用递归 setTimeout 替代 setInterval，以便每帧间隔可变
+            function playFrame() {
+                if (currentFrame >= sequence.length) {
+                    resolve();
+                    return;
+                }
+                // 切换前淡出
+                windowEl.querySelector('.slot-symbol-img').classList.add('fading');
+                setTimeout(() => {
+                    windowEl.innerHTML = Pages.lottery._symbolHTML(sequence[currentFrame]);
+                    // 切换完成后淡入
+                    windowEl.querySelector('.slot-symbol-img').classList.remove('fading');
+                    currentFrame++;
+                    const interval = getInterval(currentFrame);
+                    setTimeout(playFrame, interval);
+                }, 40);
+            }
+            playFrame();
+        });
     },
 };

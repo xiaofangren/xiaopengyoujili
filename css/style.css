@@ -809,6 +809,104 @@ body::after {
     min-height: 2.2rem;
 }
 
+/* ========== 拉霸机 ========== */
+.slot-machine {
+    text-align: center;
+}
+
+.slot-frame {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+    padding: 12px;
+    margin: var(--spacing-lg) auto;
+    background: linear-gradient(180deg, #2A2A2A, #1A1A1A);
+    border-radius: 20px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+    width: fit-content;
+}
+
+.slot-reel {
+    width: 80px;
+    height: 100px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.2);
+    position: relative;
+}
+
+/* 每列两侧的遮罩渐变 */
+.slot-reel::before,
+.slot-reel::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 24px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.slot-reel::before {
+    top: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.8), transparent);
+}
+
+.slot-reel::after {
+    bottom: 0;
+    background: linear-gradient(0deg, rgba(255,255,255,0.8), transparent);
+}
+
+.slot-window {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    transition: transform 0.3s ease;
+}
+
+.slot-symbol-img {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 88px;
+    border-radius: 10px;
+    user-select: none;
+    opacity: 1;
+    transition: opacity 0.05s ease;
+}
+
+.slot-symbol-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+}
+
+.slot-symbol-img.fading {
+    opacity: 0.3;
+}
+
+/* 中奖中线 */
+.slot-line {
+    width: 80%;
+    max-width: 320px;
+    height: 2px;
+    margin: 0 auto;
+    background: linear-gradient(90deg, transparent, var(--danger), transparent);
+    opacity: 0.5;
+}
+
+.slot-result {
+    min-height: 2.4rem;
+    margin-top: 12px;
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
 /* ========== 积分记录 ========== */
 .log-item {
     display: flex;
@@ -1426,6 +1524,40 @@ textarea.form-input {
     padding: 14px 16px;
     font-size: 1rem;
     min-height: 48px;
+}
+
+/* ========== 日历视图 ========== */
+.cal-day {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-radius: 10px;
+    padding: 2px;
+}
+
+.cal-day:active {
+    transform: scale(0.9);
+}
+
+.cal-day-today span {
+    position: relative;
+}
+
+.cal-day-today span::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 18px;
+    height: 3px;
+    background: var(--primary);
+    border-radius: 2px;
+}
+
+.cal-day-selected span {
+    background: var(--primary) !important;
+    color: #fff !important;
+    box-shadow: 0 2px 8px var(--primary-glow);
 }
 
 /* ========== 滚动条美化 ========== */

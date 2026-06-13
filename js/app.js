@@ -36,14 +36,22 @@ const APP = {
 
         // 4. 绑定登录按钮事件（直接绑定，不依赖 Pages.login）
         const loginBtn = document.getElementById('btn-login');
-        if (loginBtn) {
+        const loginInput = document.getElementById('login-username');
+        if (loginBtn && loginInput) {
+            // 回车键登录
+            loginInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    loginBtn.click();
+                }
+            });
+            loginInput.focus();
             loginBtn.addEventListener('click', async () => {
-                const input = document.getElementById('login-username');
-                const username = input ? input.value.trim() : '';
+                SOUND.click();
+                const username = loginInput.value.trim();
                 
                 if (!username) {
                     this.showToast('请输入昵称哦~ 😊');
-                    if (input) input.focus();
+                    loginInput.focus();
                     return;
                 }
 
@@ -56,6 +64,7 @@ const APP = {
                 this.hideLoading();
 
                 if (result.success) {
+                    SOUND.login();
                     this.showToast(`欢迎 ${result.user.username}！🎉`);
                     this.navigateTo('home');
                 } else {
@@ -161,6 +170,7 @@ const APP = {
         `;
 
         document.getElementById('modal-overlay').classList.remove('hidden');
+        SOUND.modalOpen();
 
         // 绑定按钮事件
         modalContent.querySelectorAll('[data-action]').forEach(btn => {
@@ -203,6 +213,7 @@ const APP = {
 
         toast.textContent = message;
         toast.style.display = 'block';
+        SOUND.toast();
 
         clearTimeout(this._toastTimer);
         this._toastTimer = setTimeout(() => {
@@ -294,6 +305,7 @@ const APP = {
         `;
 
         document.getElementById('modal-overlay').classList.remove('hidden');
+        SOUND.modalOpen();
 
         // 取消按钮
         document.getElementById('form-cancel').addEventListener('click', () => this.hideModal());
@@ -317,6 +329,7 @@ const APP = {
             }
 
             this.hideModal();
+            SOUND.click();
             if (onSubmit) onSubmit(values);
         });
     },
