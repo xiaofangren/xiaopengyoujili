@@ -216,10 +216,9 @@ Pages.logs = {
             // 选中日期的记录
             const dayTotal = this.getDayTotal(this.selectedDate);
             html += `
-                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
-                    <span style="font-size:1rem; font-weight:800; color:var(--text-primary);">📅 ${this.selectedDate} 的积分记录</span>
-                    <span style="font-size:0.95rem; font-weight:700; color:${dayTotal >= 0 ? 'var(--success)' : 'var(--danger)'};">
-                        当日总计：${dayTotal > 0 ? '+' : ''}${dayTotal} 积分
+                <div style="text-align:center; margin-bottom:16px; padding:10px 0; background:linear-gradient(135deg, #667eea20, #764ba220); border-radius:12px;">
+                    <span style="font-size:1.1rem; font-weight:800; color:${dayTotal >= 0 ? 'var(--success)' : 'var(--danger)'};">
+                        💪 今日总分 &nbsp;${dayTotal > 0 ? '+' : ''}${dayTotal} 积分
                     </span>
                 </div>
             `;
@@ -247,7 +246,7 @@ Pages.logs = {
                             <div class="log-icon">${icon}</div>
                             <div class="log-info">
                                 <div class="log-desc">${log.reason || '积分变动'}</div>
-                                <div class="log-time">${time}</div>
+                                <div class="log-time">${displayTime}</div>
                             </div>
                             <div class="log-amount ${isPositive ? 'positive' : 'negative'}">
                                 ${isPositive ? '+' : ''}${log.amount}
