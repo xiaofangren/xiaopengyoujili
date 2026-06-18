@@ -18,13 +18,13 @@ const SLOT_IMAGES = [
     '图片/4.jpg',
 ];
 
-// 中奖概率表
+// 中奖概率表（和=100）
 const PRIZE_PROBS = [
-    { name: '大奖',    score: 10, match: 4, prob: 5.6  },  // 四个一样
-    { name: '幸运奖',  score: 8,  match: 3, prob: 16.7 },  // 三个一样
-    { name: '运气奖',  score: 7,  match: 2, prob: 11.1 },  // 两队一样（AABB）
-    { name: '小奖',    score: 6,  match: 2, prob: 55.6 },  // 两个一样
-    { name: '谢谢参与', score: 4,  match: 0, prob: 11.1 },  // 全都不一樣
+    { name: '大奖',    score: 10, match: 4, prob: 5.6  },  // 四个一样   ~5.6%
+    { name: '幸运奖',  score: 8,  match: 3, prob: 16.7 },  // 三个一样   ~16.7%
+    { name: '运气奖',  score: 7,  match: 2, prob: 11.1 },  // 两队一样   ~11.1%
+    { name: '小奖',    score: 6,  match: 2, prob: 55.5 },  // 两个一样   ~55.5%
+    { name: '谢谢参与', score: 4,  match: 0, prob: 11.1 },  // 全都不一樣 ~11.1%
 ];
 
 /**
@@ -54,7 +54,8 @@ function generateResult(match, team = false) {
     } else if (match === 3) {
         // 三个一样：先随机选一个符号出现三次，另一个出现一次
         const sameIdx = Math.floor(Math.random() * 4);
-        const otherIdx = Math.floor(Math.random() * 3);
+        let otherIdx;
+        do { otherIdx = Math.floor(Math.random() * 4); } while (otherIdx === sameIdx);
         // 随机选一个位置放不同的
         const diffPos = Math.floor(Math.random() * 4);
         for (let i = 0; i < 4; i++) {
@@ -227,11 +228,11 @@ Pages.lottery = {
                 </div>
                 <div style="padding:4px 0; font-size:0.9rem; color:var(--text-secondary); line-height:1.8;">
                     <div>🎯 四列图案相同即中奖</div>
-                    <div>✨ 四个一样 = 大奖 10 积分 (5%)</div>
-                    <div>🌟 三个一样 = 幸运奖 8 积分 (15%)</div>
-                    <div>🎁 两队一样 = 运气奖 7 积分 (10%)</div>
-                    <div>🎉 两个一样 = 小奖 6 积分 (50%)</div>
-                    <div>💫 全都不一样 = 谢谢参与 4 积分 (10%)</div>
+                    <div>✨ 四个一样 = 大奖 10 积分 (5.6%)</div>
+                    <div>🌟 三个一样 = 幸运奖 8 积分 (16.7%)</div>
+                    <div>🎁 两队一样 = 运气奖 7 积分 (11.1%)</div>
+                    <div>🎉 两个一样 = 小奖 6 积分 (55.5%)</div>
+                    <div>💫 全都不一样 = 谢谢参与 4 积分 (11.1%)</div>
                 </div>
             </div>
 

@@ -1,5 +1,13 @@
 {
   "dependencies": {
     "@cloudbase/js-sdk": "^3.3.13"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.9"
   }
 }
