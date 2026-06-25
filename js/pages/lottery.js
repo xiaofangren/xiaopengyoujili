@@ -147,15 +147,13 @@ Pages.lottery = {
             return;
         }
 
-        // 统计今日抽奖次数（查当天消耗记录）
+        // 统计今日抽奖次数（用 dbQueryLogsPaged 避免日志超 100 条后查询不到新记录）
         const today = new Date().toLocaleDateString('sv-SE');
-        const logsResult = await dbQuery(COLLECTIONS.LOGS, {
-            userId: user._id,
-            type: 'lottery',
-        });
+        const logsResult = await dbQueryLogsPaged(user._id, 2, 500);
         this.todayLotteryCount = 0;
         if (logsResult.success) {
             this.todayLotteryCount = logsResult.data.filter(log => {
+                if (log.type !== 'lottery') return false;
                 // 优先用 localDate 精确匹配
                 if (log.localDate === today && log.reason === '抽奖消耗') return true;
                 // 降级：用 createTime 做时区转换
@@ -295,6 +293,29 @@ Pages.lottery = {
         const matchCount = prize.match;
         const isTeam = (prize.name === '运气奖'); // 两队一样
         const results = generateResult(matchCount, isTeam);
+
+        // 🛡️ 安全校验：确保图案生成的分类结果与奖品 match 一致
+        const counts = Object.values(results.reduce((acc, v) => {
+            acc[v] = (acc[v] || 0) + 1;
+            return acc;
+        }, {})).sort((a, b) => b - a); // 降序 [4], [3,1], [2,2], [2,1,1], [1,1,1,1]
+
+        const validMap = {
+            4: c => c[0] === 4,                          // 四个一样
+            3: c => c[0] === 3 && c[1] === 1,            // 三个一样
+        };
+        // match=2 有两种：两队一样 [2,2] 或 两个一样 [2,1,1]
+        // match=0 即全都不一样 [1,1,1,1]
+
+        const isValid = validMap[matchCount]
+            ? validMap[matchCount](counts)
+            : (matchCount === 2 ? (counts[0] === 2 && (counts[1] === 2 || counts[1] === 1)) : counts.length === 4);
+
+        console.log(`🎰 抽奖: ${prize.name}(${prize.score}分) match=${matchCount} results=${JSON.stringify(results)} counts=${JSON.stringify(counts)} ${isValid ? '✅' : '❌ 异常!'}`);
+
+        if (!isValid) {
+            console.error(`⚠️ 抽奖图案与奖品不匹配！强制以奖品为准：${prize.name}`);
+        }
 
         // 2. 扣除积分
         AUTH.addScore(-LOTTERY_COST, '抽奖消耗', 'lottery');

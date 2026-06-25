@@ -434,7 +434,7 @@ Pages.logs = {
             '导出数据',
             '将导出你的积分数据到剪贴板，方便备份。',
             async () => {
-                const logsResult = await dbQuery(COLLECTIONS.LOGS, { userId: user._id });
+                const logsResult = await dbQueryLogsPaged(user._id, 365, 500);
                 const data = {
                     user: user,
                     logs: logsResult.success ? logsResult.data : [],

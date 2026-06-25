@@ -29,15 +29,13 @@ Pages.home = {
         const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
         const totalTasks = tasksResult.success ? tasksResult.data.length : 0;
 
-        // 获取今日已完成任务
-        const logsResult = await dbQuery(COLLECTIONS.LOGS, {
-            userId: user._id,
-            type: 'task',
-        });
+        // 获取今日已完成任务（用 dbQueryLogsPaged 避免日志超 100 条后查不到新记录）
+        const logsResult = await dbQueryLogsPaged(user._id, 2, 500);
         let completedToday = 0;
         if (logsResult.success && logsResult.data.length > 0) {
             const today = new Date().toLocaleDateString('sv-SE');
             completedToday = logsResult.data.filter(log => {
+                if (log.type !== 'task') return false;
                 if (log.localDate === today) return true;
                 const time = log.createTime || log._createTime || '';
                 return time && time.startsWith(today);

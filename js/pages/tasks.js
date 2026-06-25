@@ -19,12 +19,9 @@ async function getCompletedToday() {
     if (!user || !user._id) return new Set();
 
     try {
-        // 只查今天的日志
+        // 只查今天的日志（用 dbQueryLogsPaged 避免日志超 100 条后查不到新记录）
         const today = new Date().toLocaleDateString('sv-SE');
-        const result = await dbQuery(COLLECTIONS.LOGS, {
-            userId: user._id,
-            type: 'task',
-        });
+        const result = await dbQueryLogsPaged(user._id, 2, 500);
         if (result.success && result.data.length > 0) {
             const names = [];
             result.data.forEach(log => {
@@ -250,11 +247,8 @@ Pages.tasks = {
                         return;
                     }
                     APP.showConfirm('撤回任务', `确定要撤回「${task.name}」吗？将扣除 ${task.score} 积分。`, async () => {
-                        // 删除今日该任务的 log 记录
-                        const logsResult = await dbQuery(COLLECTIONS.LOGS, {
-                            userId: AUTH.getCurrentUser()._id,
-                            type: 'task',
-                        });
+                        // 删除今日该任务的 log 记录（用 dbQueryLogsPaged 避免日志超 100 条后查不到新记录）
+                        const logsResult = await dbQueryLogsPaged(AUTH.getCurrentUser()._id, 2, 500);
                         if (logsResult.success) {
                             const today = new Date().toLocaleDateString('sv-SE');
                             const todayLogs = logsResult.data.filter(log => {
@@ -333,10 +327,8 @@ Pages.tasks = {
                             return;
                         }
                         APP.showConfirm('撤回任务', `确定要撤回「${undoneTask.name}」吗？将扣除 ${undoneTask.score} 积分。`, async () => {
-                            const logsResult = await dbQuery(COLLECTIONS.LOGS, {
-                                userId: AUTH.getCurrentUser()._id,
-                                type: 'task',
-                            });
+                            // 删除今日该任务的 log 记录（用 dbQueryLogsPaged 避免日志超 100 条后查不到新记录）
+                            const logsResult = await dbQueryLogsPaged(AUTH.getCurrentUser()._id, 2, 500);
                             if (logsResult.success) {
                                 const today = new Date().toLocaleDateString('sv-SE');
                                 const todayLogs = logsResult.data.filter(log => {
