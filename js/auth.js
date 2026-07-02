@@ -5,11 +5,15 @@
 const AUTH = {
     currentUser: null,
     STORAGE_KEY: 'reward_app_user',
+    KNOWN_USERS_KEY: 'reward_app_known_users',
 
     /**
      * 用户登录
+     * @param {string} username - 昵称
+     * @param {string} role - 'child' 或 'parent'
+     * @param {string} familyCode - 可选，加入家庭时填的 6 位家庭码
      */
-    async login(username, role = 'child') {
+    async login(username, role = 'child', familyCode = '') {
         if (!username || !username.trim()) {
             return { success: false, error: '请输入昵称' };
         }
@@ -26,7 +30,8 @@ const AUTH = {
                     const verifyResult = await dbGetById(COLLECTIONS.USERS, cachedUser._id);
                     if (verifyResult.success && verifyResult.data) {
                         this.currentUser = verifyResult.data;
-                        // 检查跨天（使用本地时间，不是 UTC）
+                        this._ensureFields(this.currentUser);
+                        // 检查跨天
                         const today = new Date().toLocaleDateString('sv-SE');
                         if (this.currentUser.lastDate !== today) {
                             this.currentUser.completedToday = 0;
@@ -37,6 +42,19 @@ const AUTH = {
                             });
                             this._saveToLocalStorage();
                         }
+
+                        // 老用户没有 familyId 时自动生成（升级兼容）
+                        if (!this.currentUser.familyId) {
+                            this.currentUser.familyId = crypto.randomUUID();
+                            this.currentUser.familyCode = generateFamilyCode();
+                            await dbUpdate(COLLECTIONS.USERS, this.currentUser._id, {
+                                familyId: this.currentUser.familyId,
+                                familyCode: this.currentUser.familyCode,
+                            });
+                            this._saveToLocalStorage();
+                        }
+
+                        this.addKnownUser(this.currentUser);
                         console.log(`✅ 用户登录成功: ${username} (已验证云端数据)`);
                         return { success: true, user: this.currentUser };
                     }
@@ -53,7 +71,7 @@ const AUTH = {
             this.currentUser = result.data[0];
             this._ensureFields(this.currentUser);
 
-            // 检查跨天（使用本地时间，不是 UTC）
+            // 检查跨天
             const today = new Date().toLocaleDateString('sv-SE');
             if (this.currentUser.lastDate !== today) {
                 this.currentUser.completedToday = 0;
@@ -63,11 +81,41 @@ const AUTH = {
                     lastDate: today,
                 });
             }
+
+            // 老用户没有 familyId 时自动生成（升级兼容）
+            if (!this.currentUser.familyId) {
+                this.currentUser.familyId = crypto.randomUUID();
+                this.currentUser.familyCode = generateFamilyCode();
+                await dbUpdate(COLLECTIONS.USERS, this.currentUser._id, {
+                    familyId: this.currentUser.familyId,
+                    familyCode: this.currentUser.familyCode,
+                });
+            }
         } else {
-            // 创建新用户
+            // 新用户：决定是加入家庭还是创建新家庭
+            let targetFamilyId = '';
+            let targetFamilyCode = '';
+
+            if (familyCode) {
+                // 找同家庭码的已有用户
+                const familyResult = await dbQuery(COLLECTIONS.USERS, { familyCode: familyCode.toUpperCase() });
+                if (familyResult.success && familyResult.data.length > 0) {
+                    targetFamilyId = familyResult.data[0].familyId || '';
+                    targetFamilyCode = familyCode.toUpperCase();
+                } else {
+                    return { success: false, error: '家庭码无效，请检查后重试' };
+                }
+            } else {
+                // 创建新家庭
+                targetFamilyId = crypto.randomUUID();
+                targetFamilyCode = generateFamilyCode();
+            }
+
             const addResult = await dbAdd(COLLECTIONS.USERS, {
                 username: username,
                 role: role,
+                familyId: targetFamilyId,
+                familyCode: targetFamilyCode,
                 score: 0,
                 totalEarned: 0,
                 totalSpent: 0,
@@ -81,6 +129,8 @@ const AUTH = {
                     _id: addResult.id,
                     username: username,
                     role: role,
+                    familyId: targetFamilyId,
+                    familyCode: targetFamilyCode,
                     score: 0,
                     totalEarned: 0,
                     totalSpent: 0,
@@ -93,20 +143,11 @@ const AUTH = {
             }
         }
 
-        // 缓存到 localStorage（只存业务字段，去掉云开发元数据）
-        const saveData = {
-            _id: this.currentUser._id,
-            username: this.currentUser.username,
-            role: this.currentUser.role,
-            score: this.currentUser.score,
-            totalEarned: this.currentUser.totalEarned,
-            totalSpent: this.currentUser.totalSpent,
-            taskCount: this.currentUser.taskCount,
-            completedToday: this.currentUser.completedToday,
-            lastDate: this.currentUser.lastDate,
-        };
+        // 保存到 knownUsers
+        this.addKnownUser(this.currentUser);
         this._saveToLocalStorage();
-        console.log(`✅ 用户登录成功: ${username} (角色: ${role}, _id: ${this.currentUser._id})`);
+
+        console.log(`✅ 用户登录成功: ${username} (角色: ${role}, _id: ${this.currentUser._id}, familyId: ${this.currentUser.familyId})`);
         return { success: true, user: this.currentUser };
     },
 
@@ -121,6 +162,7 @@ const AUTH = {
             score: u.score, totalEarned: u.totalEarned,
             totalSpent: u.totalSpent, taskCount: u.taskCount,
             completedToday: u.completedToday, lastDate: u.lastDate,
+            familyId: u.familyId, familyCode: u.familyCode,
         };
         localStorage.setItem(this.STORAGE_KEY, JSON.stringify(saveData));
     },
@@ -136,6 +178,8 @@ const AUTH = {
         user.taskCount = typeof user.taskCount === 'number' && !isNaN(user.taskCount) ? user.taskCount : 0;
         user.completedToday = typeof user.completedToday === 'number' && !isNaN(user.completedToday) ? user.completedToday : 0;
         user.lastDate = user.lastDate || null;
+        user.familyId = user.familyId || '';
+        user.familyCode = user.familyCode || '';
     },
 
     /**
@@ -293,6 +337,17 @@ const AUTH = {
                         lastDate: today,
                     });
                 }
+
+                // 老用户没有 familyId 时自动生成
+                if (!this.currentUser.familyId) {
+                    this.currentUser.familyId = crypto.randomUUID();
+                    this.currentUser.familyCode = generateFamilyCode();
+                    await dbUpdate(COLLECTIONS.USERS, this.currentUser._id, {
+                        familyId: this.currentUser.familyId,
+                        familyCode: this.currentUser.familyCode,
+                    });
+                }
+
                 this._saveToLocalStorage();
                 return { success: true, user: this.currentUser };
             }
@@ -311,11 +366,149 @@ const AUTH = {
                     this.currentUser.completedToday = 0;
                     this.currentUser.lastDate = today;
                 }
+
+                // 老用户没有 familyId 时自动生成
+                if (!this.currentUser.familyId) {
+                    this.currentUser.familyId = crypto.randomUUID();
+                    this.currentUser.familyCode = generateFamilyCode();
+                    await dbUpdate(COLLECTIONS.USERS, this.currentUser._id, {
+                        familyId: this.currentUser.familyId,
+                        familyCode: this.currentUser.familyCode,
+                    });
+                }
+
                 this._saveToLocalStorage();
                 return { success: true, user: this.currentUser };
             }
         }
 
         return { success: false, error: '获取用户数据失败' };
+    },
+
+    // ========== 家庭与用户切换 ==========
+
+    /**
+     * 获取已知用户列表（同一设备登录过的家庭成员）
+     */
+    getKnownUsers() {
+        try {
+            const data = localStorage.getItem(this.KNOWN_USERS_KEY);
+            const users = data ? JSON.parse(data) : [];
+            return Array.isArray(users) ? users : [];
+        } catch {
+            return [];
+        }
+    },
+
+    /**
+     * 添加用户到已知用户列表
+     */
+    addKnownUser(user) {
+        if (!user || !user._id) return;
+        const users = this.getKnownUsers().filter(u => u._id !== user._id);
+        users.push({
+            _id: user._id,
+            username: user.username,
+            role: user.role || 'child',
+            familyId: user.familyId || '',
+        });
+        localStorage.setItem(this.KNOWN_USERS_KEY, JSON.stringify(users));
+    },
+
+    /**
+     * 从已知用户列表中移除
+     */
+    removeKnownUser(userId) {
+        const users = this.getKnownUsers().filter(u => u._id !== userId);
+        localStorage.setItem(this.KNOWN_USERS_KEY, JSON.stringify(users));
+    },
+
+    /**
+     * 一键切换到另一个已知用户
+     */
+    async switchToUser(userId) {
+        const result = await dbGetById(COLLECTIONS.USERS, userId);
+        if (result.success && result.data) {
+            this.currentUser = result.data;
+            this._ensureFields(this.currentUser);
+
+            const today = new Date().toLocaleDateString('sv-SE');
+            if (this.currentUser.lastDate !== today) {
+                this.currentUser.completedToday = 0;
+                this.currentUser.lastDate = today;
+                await dbUpdate(COLLECTIONS.USERS, this.currentUser._id, {
+                    completedToday: 0,
+                    lastDate: today,
+                });
+            }
+            this._saveToLocalStorage();
+            return { success: true, user: this.currentUser };
+        }
+        return { success: false, error: '找不到该用户' };
+    },
+
+    /**
+     * 添加家庭成员（快速创建同家庭的新用户）
+     */
+    async addFamilyMember(username, role = 'child') {
+        const user = this.getCurrentUser();
+        if (!user) {
+            return { success: false, error: '请先登录' };
+        }
+        if (!username || !username.trim()) {
+            return { success: false, error: '请输入昵称' };
+        }
+        username = username.trim();
+
+        // 先检查用户名是否已被占用
+        const existing = await dbQuery(COLLECTIONS.USERS, { username });
+        if (existing.success && existing.data.length > 0) {
+            return { success: false, error: '该昵称已被使用' };
+        }
+
+        // 确保当前用户有 familyId
+        let familyId = user.familyId;
+        let familyCode = user.familyCode || '';
+        if (!familyId) {
+            familyId = crypto.randomUUID();
+            familyCode = generateFamilyCode();
+            // 更新当前用户的 familyId
+            await dbUpdate(COLLECTIONS.USERS, user._id, { familyId, familyCode });
+            user.familyId = familyId;
+            user.familyCode = familyCode;
+            this._saveToLocalStorage();
+        }
+
+        const addResult = await dbAdd(COLLECTIONS.USERS, {
+            username: username,
+            role: role,
+            familyId: familyId,
+            familyCode: familyCode,
+            score: 0,
+            totalEarned: 0,
+            totalSpent: 0,
+            taskCount: 0,
+            completedToday: 0,
+            lastDate: null,
+        });
+
+        if (addResult.success) {
+            const newUser = {
+                _id: addResult.id,
+                username: username,
+                role: role,
+                familyId: familyId,
+                familyCode: familyCode,
+                score: 0,
+                totalEarned: 0,
+                totalSpent: 0,
+                taskCount: 0,
+                completedToday: 0,
+                lastDate: null,
+            };
+            this.addKnownUser(newUser);
+            return { success: true, user: newUser };
+        }
+        return { success: false, error: addResult.error || '创建失败' };
     },
 };

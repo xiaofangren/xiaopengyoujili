@@ -132,12 +132,22 @@ Pages.logs = {
         }
 
         let html = `
-            <!-- 用户信息 -->
-            <div class="card" style="text-align:center; padding:24px;">
-                <div style="font-size:3rem; margin-bottom:8px;">👤</div>
+            <!-- 用户信息（点击切换家庭成员） -->
+            <div class="card user-profile-card" onclick="APP.showFamilySwitcher()" style="text-align:center; padding:24px; cursor:pointer;">
+                <div style="font-size:3rem; margin-bottom:8px; position:relative;">
+                    👤
+                    <span style="position:absolute; bottom:0; right:50%; transform:translateX(50%); font-size:0.7rem; background:var(--primary); color:#fff; padding:2px 10px; border-radius:10px; white-space:nowrap;">⇄ 切换</span>
+                </div>
                 <div style="font-size:1.4rem; font-weight:700;">${user.username}</div>
+                ${user.familyCode ? `<div style="font-size:0.85rem; color:var(--text-secondary); margin-top:6px;">
+                    家庭码 <span style="font-weight:800; letter-spacing:2px; color:var(--primary);">${user.familyCode}</span>
+                    <span style="font-size:0.75rem; color:var(--text-secondary); margin-left:4px; cursor:pointer;" onclick="event.stopPropagation();Pages.logs.copyFamilyCode()">📋 复制</span>
+                </div>` : ''}
                 <div style="font-size:0.9rem; color:var(--text-secondary); margin-top:4px;">
                     📅 累计完成任务 ${user.taskCount || 0} 个
+                </div>
+                <div style="font-size:0.75rem; color:var(--primary); margin-top:8px;">
+                    👨‍👩‍👧‍👦 点击切换家庭成员
                 </div>
             </div>
 
@@ -264,7 +274,10 @@ Pages.logs = {
             }
             html += '</div>';
         } else {
-            // 设置页面（保持不变）
+            // 检查是否有无主的旧数据
+            const hasOldData = await hasOrphanData();
+
+            // 设置页面
             html += `
                 <div id="settings-content">
                     <!-- 积分概览 -->
@@ -291,6 +304,25 @@ Pages.logs = {
                         </div>
                     </div>
 
+                    <!-- 家庭信息 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">🏠 家庭信息</span>
+                        </div>
+                        <div style="margin-top:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0;">
+                                <span style="color:var(--text-secondary);">家庭码</span>
+                                <span style="font-weight:800; font-size:1.2rem; letter-spacing:3px; color:var(--primary);" id="family-code-display">${user.familyCode || '未设置'}</span>
+                            </div>
+                            <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:4px;">
+                                💡 新用户登录时输入此家庭码即可加入你的家庭，共享任务和奖励
+                            </div>
+                            <button class="btn btn-outline btn-small" style="margin-top:8px; width:100%;" onclick="Pages.logs.copyFamilyCode()">
+                                📋 复制家庭码
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- 管理功能 -->
                     <div class="card">
                         <div class="card-header">
@@ -306,6 +338,11 @@ Pages.logs = {
                             <button class="btn btn-outline" onclick="Pages.logs.showDataModal()" style="justify-content:flex-start;">
                                 📤 导出数据
                             </button>
+                            ${hasOldData ? `
+                            <button class="btn btn-warning" onclick="Pages.logs.migrateOldData()" style="justify-content:flex-start;">
+                                🏠 认领旧数据
+                            </button>
+                            ` : ''}
                         </div>
                     </div>
 
@@ -446,6 +483,58 @@ Pages.logs = {
                     APP.showToast('✅ 数据已复制到剪贴板');
                 } catch (e) {
                     APP.showToast('复制失败，请手动截图');
+                }
+            }
+        );
+    },
+
+    /**
+     * 复制家庭码到剪贴板
+     */
+    copyFamilyCode() {
+        const user = AUTH.getCurrentUser();
+        if (!user || !user.familyCode) {
+            APP.showToast('暂无家庭码');
+            return;
+        }
+        try {
+            navigator.clipboard.writeText(user.familyCode);
+            APP.showToast('✅ 家庭码已复制：' + user.familyCode);
+        } catch (e) {
+            APP.showToast('家庭码：' + user.familyCode);
+        }
+    },
+
+    /**
+     * 认领旧数据：把无主的旧任务和奖励迁移到当前家庭
+     */
+    async migrateOldData() {
+        const user = AUTH.getCurrentUser();
+        if (!user || !user.familyId) {
+            APP.showToast('请先登录');
+            return;
+        }
+
+        APP.showConfirm(
+            '认领旧数据',
+            `将把所有没有归属的旧任务和旧奖励迁移到你的家庭「${user.familyCode || user.familyId}」名下。迁移后其他家庭将看不到这些数据。确定要执行吗？`,
+            async () => {
+                APP.showLoading();
+                const result = await migrateOrphanData(user.familyId);
+                APP.hideLoading();
+                if (result.success && result.count > 0) {
+                    APP.showToast(`✅ 已认领 ${result.count} 条旧数据`);
+                    // 刷新当前页面组件
+                    const current = APP.currentPage;
+                    if (current === 'logs') {
+                        await this.refreshLogs();
+                        this.render();
+                    }
+                } else if (result.success && result.count === 0) {
+                    APP.showToast('没有需要认领的旧数据');
+                    this.render();
+                } else {
+                    APP.showToast('认领失败：' + (result.error || '未知错误'));
                 }
             }
         );

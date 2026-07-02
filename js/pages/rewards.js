@@ -32,12 +32,12 @@ Pages.rewards = {
      * 兑换奖励
      */
     async redeemReward(rewardId) {
-        const rewardsResult = await dbQuery(COLLECTIONS.REWARDS, {});
+        const user = AUTH.getCurrentUser();
+        const rewardsResult = await dbQuery(COLLECTIONS.REWARDS, familyQuery(user.familyId));
         const rewards = rewardsResult.success ? rewardsResult.data : [];
         const reward = rewards.find(r => r._id === rewardId);
         if (!reward) return;
 
-        const user = AUTH.getCurrentUser();
         if (user.score < reward.cost) {
             APP.showToast('积分不足，再加油吧！💪');
             return;
@@ -77,7 +77,7 @@ Pages.rewards = {
         }
 
         // 获取奖励列表
-        const rewardsResult = await dbQuery(COLLECTIONS.REWARDS, {});
+        const rewardsResult = await dbQuery(COLLECTIONS.REWARDS, familyQuery(user.familyId));
         const rewards = (rewardsResult.success ? rewardsResult.data : []).sort((a, b) => (a.order || 0) - (b.order || 0));
 
         APP.hideLoading();
@@ -193,7 +193,7 @@ Pages.rewards = {
                 }
 
                 // 同步顺序到云端：拖拽后重新获取 DOM 顺序
-                const newRewardsResult = await dbQuery(COLLECTIONS.REWARDS, {});
+                const newRewardsResult = await dbQuery(COLLECTIONS.REWARDS, familyQuery(AUTH.getCurrentUser().familyId));
                 const newRewards = newRewardsResult.success ? newRewardsResult.data : [];
                 const updatedOrder = [];
                 container.querySelectorAll('.reward-item').forEach((el, idx) => {
@@ -340,6 +340,7 @@ Pages.rewards = {
                     cost: parseInt(values.cost) || 10,
                     description: values.description || '',
                     enabled: true,
+                    familyId: AUTH.getCurrentUser().familyId || '',
                 });
 
                 if (result.success) {

@@ -25,15 +25,13 @@
                 <p class="login-subtitle">完成任务，赚取积分，兑换奖励！</p>
                 <div class="login-form">
                     <input type="text" id="login-username" placeholder="请输入你的昵称" maxlength="20" autocomplete="off">
-                    <div class="role-selector">
-                        <span class="role-label">我是：</span>
-                        <button type="button" class="role-btn active" data-role="child" onclick="this.closest('.login-form').querySelectorAll('.role-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');">👶 小孩</button>
-                        <button type="button" class="role-btn" data-role="parent" onclick="this.closest('.login-form').querySelectorAll('.role-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');">👨‍👩‍👧 家长</button>
+                    <div class="family-code-row">
+                        <input type="text" id="login-family-code" placeholder="家庭码（可选，加入已有家庭时填写）" maxlength="10" autocomplete="off">
                     </div>
                     <button id="btn-login" class="btn btn-primary btn-large">🚀 开始冒险</button>
                 </div>
                 <div class="login-tips">
-                    <p>👨‍👩‍👧 家长可在「我的」页面管理任务与奖励</p>
+                    <p>💡 在「我的」页面可管理任务与奖励、添加家庭成员</p>
                 </div>
             </div>
         </div>

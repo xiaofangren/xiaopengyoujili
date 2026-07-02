@@ -55,6 +55,18 @@ globalThis.dbDelete = vi.fn();
 globalThis.dbQueryLogsPaged = vi.fn();
 globalThis.initCloud = vi.fn();
 
+// ─── 4b. 模拟家庭相关函数 ─────────────────
+globalThis.familyQuery = vi.fn((familyId) => ({ $or: [{ familyId }, { familyId: { $exists: false } }] }));
+globalThis.generateFamilyCode = vi.fn(() => 'ABC123');
+globalThis.hasOrphanData = vi.fn(async () => false);
+globalThis.migrateOrphanData = vi.fn(async (familyId) => ({ success: true, count: 0 }));
+
+// ─── 4c. 模拟 crypto.randomUUID ────────────
+if (!globalThis.crypto) {
+    globalThis.crypto = {};
+}
+globalThis.crypto.randomUUID = vi.fn(() => '00000000-0000-4000-8000-000000000001');
+
 // ─── 5. 模拟 document.addEventListener（用于 sound.js） ───
 document.addEventListener = vi.fn();
 document.removeEventListener = vi.fn();

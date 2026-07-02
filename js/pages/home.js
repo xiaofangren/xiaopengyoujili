@@ -26,10 +26,10 @@ Pages.home = {
         }
 
         // 获取任务统计
-        const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+        const tasksResult = await dbQuery(COLLECTIONS.TASKS, familyQuery(user.familyId));
         const totalTasks = tasksResult.success ? tasksResult.data.length : 0;
 
-        // 获取今日已完成任务（用 dbQueryLogsPaged 避免日志超 100 条后查不到新记录）
+        // 获取今日已完成任务
         const logsResult = await dbQueryLogsPaged(user._id, 2, 500);
         let completedToday = 0;
         if (logsResult.success && logsResult.data.length > 0) {

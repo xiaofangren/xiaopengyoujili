@@ -37,6 +37,8 @@ describe('AUTH._ensureFields', () => {
         user.taskCount = typeof user.taskCount === 'number' && !isNaN(user.taskCount) ? user.taskCount : 0;
         user.completedToday = typeof user.completedToday === 'number' && !isNaN(user.completedToday) ? user.completedToday : 0;
         user.lastDate = user.lastDate || null;
+        user.familyId = user.familyId || '';
+        user.familyCode = user.familyCode || '';
     }
 
     it('修正 NaN 为 0', () => {
@@ -60,6 +62,13 @@ describe('AUTH._ensureFields', () => {
         ensureFields(user);
         expect(user.lastDate).toBeNull();
     });
+
+    it('设置 familyId 和 familyCode 默认值为空字符串', () => {
+        const user = {};
+        ensureFields(user);
+        expect(user.familyId).toBe('');
+        expect(user.familyCode).toBe('');
+    });
 });
 
 describe('AUTH._saveToLocalStorage', () => {
@@ -75,6 +84,8 @@ describe('AUTH._saveToLocalStorage', () => {
             taskCount: 10,
             completedToday: 3,
             lastDate: '2026-06-16',
+            familyId: 'fam-123',
+            familyCode: 'XYZ789',
         };
         a._saveToLocalStorage();
 
@@ -83,6 +94,8 @@ describe('AUTH._saveToLocalStorage', () => {
         expect(stored.score).toBe(50);
         expect(stored.role).toBe('child');
         expect(stored._id).toBe('u1');
+        expect(stored.familyId).toBe('fam-123');
+        expect(stored.familyCode).toBe('XYZ789');
         // 不应保存内部/元数据字段
         expect(stored._createTime).toBeUndefined();
     });
@@ -202,7 +215,7 @@ describe('AUTH.login', () => {
         expect(result.user.score).toBe(20);
     });
 
-    it('新用户创建成功', async () => {
+    it('新用户创建成功（自动生成家庭）', async () => {
         const a = globalThis.AUTH;
         // dbQuery 返回空 → 新用户
         globalThis.dbQuery.mockResolvedValue({ success: true, data: [] });
@@ -213,13 +226,47 @@ describe('AUTH.login', () => {
         expect(result.user.username).toBe('新用户');
         expect(result.user.score).toBe(0);
         expect(result.user.role).toBe('child');
+        expect(result.user.familyId).toBeTruthy();
+        expect(result.user.familyCode).toBe('ABC123');
 
-        // 验证 dbAdd 被正确调用
+        // 验证 dbAdd 被正确调用（包含 familyId 和 familyCode）
         expect(globalThis.dbAdd).toHaveBeenCalledWith('users', expect.objectContaining({
             username: '新用户',
             role: 'child',
             score: 0,
+            familyId: expect.any(String),
+            familyCode: 'ABC123',
         }));
+    });
+
+    it('新用户通过家庭码加入已有家庭', async () => {
+        const a = globalThis.AUTH;
+        // 第一次查询用户不存在
+        globalThis.dbQuery.mockResolvedValueOnce({ success: true, data: [] });
+        // 第二次查询家庭码有效
+        globalThis.dbQuery.mockResolvedValueOnce({
+            success: true,
+            data: [{ _id: 'parent1', familyId: 'fam-existing', familyCode: 'ABC123' }],
+        });
+        globalThis.dbAdd.mockResolvedValue({ success: true, id: 'new-child-456' });
+
+        const result = await a.login('新孩子', 'child', 'ABC123');
+        expect(result.success).toBe(true);
+        expect(result.user.username).toBe('新孩子');
+        expect(result.user.familyId).toBe('fam-existing');
+        expect(result.user.familyCode).toBe('ABC123');
+    });
+
+    it('无效家庭码时返回错误', async () => {
+        const a = globalThis.AUTH;
+        // 第一次查询用户不存在
+        globalThis.dbQuery.mockResolvedValueOnce({ success: true, data: [] });
+        // 第二次查询家庭码无效
+        globalThis.dbQuery.mockResolvedValueOnce({ success: true, data: [] });
+
+        const result = await a.login('新孩子', 'child', 'INVALID');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('家庭码无效');
     });
 
     it('跨天时重置 completedToday', async () => {
@@ -377,5 +424,93 @@ describe('AUTH.logout', () => {
         a.logout();
         expect(a.currentUser).toBeNull();
         expect(localStorage.getItem(a.STORAGE_KEY)).toBeNull();
+    });
+});
+
+describe('AUTH.getKnownUsers / addKnownUser', () => {
+    beforeEach(() => {
+        globalThis.AUTH.currentUser = null;
+        localStorage.clear();
+    });
+
+    it('没有已知用户时返回空数组', () => {
+        expect(globalThis.AUTH.getKnownUsers()).toEqual([]);
+    });
+
+    it('添加用户到已知列表', () => {
+        globalThis.AUTH.addKnownUser({ _id: 'u1', username: '小明', role: 'child', familyId: 'fam-1' });
+        const users = globalThis.AUTH.getKnownUsers();
+        expect(users).toHaveLength(1);
+        expect(users[0].username).toBe('小明');
+    });
+
+    it('添加重复用户不会重复', () => {
+        globalThis.AUTH.addKnownUser({ _id: 'u1', username: '小明', role: 'child', familyId: 'fam-1' });
+        globalThis.AUTH.addKnownUser({ _id: 'u1', username: '小明', role: 'child', familyId: 'fam-1' });
+        expect(globalThis.AUTH.getKnownUsers()).toHaveLength(1);
+    });
+});
+
+describe('AUTH.switchToUser', () => {
+    beforeEach(() => {
+        globalThis.AUTH.currentUser = null;
+        localStorage.clear();
+        vi.clearAllMocks();
+    });
+
+    it('切换到已有用户成功', async () => {
+        globalThis.dbGetById.mockResolvedValue({
+            success: true,
+            data: {
+                _id: 'u2', username: '丫丫', role: 'child',
+                score: 30, totalEarned: 30, totalSpent: 0, taskCount: 3,
+                completedToday: 0, lastDate: null,
+            },
+        });
+
+        const result = await globalThis.AUTH.switchToUser('u2');
+        expect(result.success).toBe(true);
+        expect(result.user.username).toBe('丫丫');
+        expect(globalThis.AUTH.getCurrentUser().username).toBe('丫丫');
+    });
+
+    it('用户不存在时返回错误', async () => {
+        globalThis.dbGetById.mockResolvedValue({ success: false, data: null });
+        const result = await globalThis.AUTH.switchToUser('nonexistent');
+        expect(result.success).toBe(false);
+    });
+});
+
+describe('AUTH.addFamilyMember', () => {
+    beforeEach(() => {
+        globalThis.AUTH.currentUser = null;
+        localStorage.clear();
+        vi.clearAllMocks();
+    });
+
+    it('未登录时返回错误', async () => {
+        const result = await globalThis.AUTH.addFamilyMember('小宝', 'child');
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('登录');
+    });
+
+    it('成功添加家庭成员（同家庭）', async () => {
+        globalThis.AUTH.currentUser = {
+            _id: 'parent1', username: '妈妈', role: 'parent',
+            familyId: 'fam-1', familyCode: 'ABC123',
+            score: 100, totalEarned: 100, totalSpent: 0, taskCount: 0,
+            completedToday: 0, lastDate: null,
+        };
+        globalThis.dbQuery.mockResolvedValue({ success: true, data: [] });
+        globalThis.dbAdd.mockResolvedValue({ success: true, id: 'child-new' });
+
+        const result = await globalThis.AUTH.addFamilyMember('小宝', 'child');
+        expect(result.success).toBe(true);
+        expect(result.user.familyId).toBe('fam-1');
+        expect(globalThis.dbAdd).toHaveBeenCalledWith('users', expect.objectContaining({
+            username: '小宝',
+            role: 'child',
+            familyId: 'fam-1',
+        }));
     });
 });

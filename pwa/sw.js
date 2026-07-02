@@ -3,7 +3,7 @@
 // PWA 离线缓存支持
 // ============================================
 
-const CACHE_NAME = 'kid-reward-v1';
+const CACHE_NAME = 'kid-reward-v2';
 
 // 需要缓存的资源
 const STATIC_ASSETS = [

@@ -72,7 +72,7 @@ Pages.tasks = {
             this.completedCache = await getCompletedToday();
         }
 
-        const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+        const tasksResult = await dbQuery(COLLECTIONS.TASKS, familyQuery(user.familyId));
         const tasks = (tasksResult.success ? tasksResult.data : []).sort((a, b) => (a.order || 0) - (b.order || 0));
 
         APP.hideLoading();
@@ -191,7 +191,7 @@ Pages.tasks = {
                 }
 
                 // 从云端同步顺序：拖拽后重新获取 DOM 顺序，逐个更新云端 order 字段
-                const newTasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+                const newTasksResult = await dbQuery(COLLECTIONS.TASKS, familyQuery(AUTH.getCurrentUser().familyId));
                 const newTasks = newTasksResult.success ? newTasksResult.data : [];
                 const updatedOrder = [];
                 container.querySelectorAll('.task-item').forEach((el, idx) => {
@@ -240,14 +240,14 @@ Pages.tasks = {
                 check.style.cursor = 'pointer';
                 check.addEventListener('click', async () => {
                     // 先查任务数据拿到 score
-                    const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+                    const tasksResult = await dbQuery(COLLECTIONS.TASKS, familyQuery(AUTH.getCurrentUser().familyId));
                     const task = tasksResult.data?.find(t => t._id === taskId);
                     if (!task) {
                         APP.showToast('任务不存在');
                         return;
                     }
                     APP.showConfirm('撤回任务', `确定要撤回「${task.name}」吗？将扣除 ${task.score} 积分。`, async () => {
-                        // 删除今日该任务的 log 记录（用 dbQueryLogsPaged 避免日志超 100 条后查不到新记录）
+                        // 删除今日该任务的 log 记录
                         const logsResult = await dbQueryLogsPaged(AUTH.getCurrentUser()._id, 2, 500);
                         if (logsResult.success) {
                             const today = new Date().toLocaleDateString('sv-SE');
@@ -259,7 +259,7 @@ Pages.tasks = {
                                 const logToDelete = todayLogs[todayLogs.length - 1];
                                 await dbDelete(COLLECTIONS.LOGS, logToDelete._id);
 
-                                // 手动扣积分，不调用 AUTH.addScore（避免产生新的"撤回"记录）
+                                // 手动扣积分
                                 const user = AUTH.getCurrentUser();
                                 const newScore = Math.max(0, user.score - task.score);
                                 await dbUpdate(COLLECTIONS.USERS, user._id, { score: newScore });
@@ -270,7 +270,6 @@ Pages.tasks = {
 
                         // UI 更新
                         self.completedCache.delete(taskName);
-                        // 直接重新渲染整个列表，确保事件处理器与状态一致
                         await self.render();
                         APP.showToast('已撤回，扣除 ' + task.score + ' 积分');
                     });
@@ -295,7 +294,7 @@ Pages.tasks = {
                     return;
                 }
 
-                const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+                const tasksResult = await dbQuery(COLLECTIONS.TASKS, familyQuery(AUTH.getCurrentUser().familyId));
                 const task = tasksResult.data?.find(t => t._id === taskId);
                 if (!task) {
                     SOUND.fail();
@@ -320,7 +319,7 @@ Pages.tasks = {
                     const checkEl = this;
                     const taskItemEl = checkEl.closest('.task-item');
                     checkEl.addEventListener('click', async () => {
-                        const tasksResult = await dbQuery(COLLECTIONS.TASKS, {});
+                        const tasksResult = await dbQuery(COLLECTIONS.TASKS, familyQuery(AUTH.getCurrentUser().familyId));
                         const undoneTask = tasksResult.data?.find(t => t._id === taskId);
                         if (!undoneTask) {
                             APP.showToast('任务不存在');
@@ -470,6 +469,7 @@ Pages.tasks = {
                     icon: values.icon || catInfo.icon,
                     score: parseInt(values.score) || 10,
                     description: values.description || '', enabled: true,
+                    familyId: AUTH.getCurrentUser().familyId || '',
                 });
                 if (result.success) { APP.showToast('✅ 任务添加成功！'); this.render(); }
                 else { APP.showToast('添加失败：' + result.error); }

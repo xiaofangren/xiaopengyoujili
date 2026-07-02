@@ -207,3 +207,90 @@ async function dbDelete(collection, docId) {
         return { success: false, error: error.message };
     }
 }
+
+/**
+ * 构建家庭隔离查询条件
+ * 兼容旧数据（没有 familyId 字段的记录也能查到）
+ * @param {string} familyId - 当前用户的家庭 ID
+ * @returns {object} db.command 查询条件
+ */
+function familyQuery(familyId) {
+    if (!db) return {};
+    const _ = db.command;
+    return _.or([
+        { familyId: familyId },
+        { familyId: _.exists(false) },
+    ]);
+}
+
+/**
+ * 生成随机家庭码（6 位大写字母数字，不含易混淆字符）
+ */
+function generateFamilyCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+}
+
+/**
+ * 检查是否有无主的旧数据（没有 familyId 的任务或奖励）
+ */
+async function hasOrphanData() {
+    if (!db) return false;
+    const _ = db.command;
+    try {
+        const tasksResult = await db.collection(COLLECTIONS.TASKS).where({ familyId: _.exists(false) }).limit(1).get();
+        if (tasksResult.data && tasksResult.data.length > 0) return true;
+        const rewardsResult = await db.collection(COLLECTIONS.REWARDS).where({ familyId: _.exists(false) }).limit(1).get();
+        if (rewardsResult.data && rewardsResult.data.length > 0) return true;
+    } catch (e) {
+        console.warn('⚠️ 检查无主数据失败:', e);
+    }
+    return false;
+}
+
+/**
+ * 将无主的旧数据迁移到当前家庭
+ * @param {string} familyId - 当前用户的家庭 ID
+ * @returns {Promise<{success: boolean, count: number, error?: string}>}
+ */
+async function migrateOrphanData(familyId) {
+    if (!db) return { success: false, count: 0, error: '云开发未初始化' };
+    if (!familyId) return { success: false, count: 0, error: '无效的家庭 ID' };
+    const _ = db.command;
+    let totalCount = 0;
+
+    try {
+        // 迁移任务
+        const tasksResult = await db.collection(COLLECTIONS.TASKS).where({ familyId: _.exists(false) }).get();
+        if (tasksResult.data && tasksResult.data.length > 0) {
+            for (const task of tasksResult.data) {
+                const id = task._id || (task.data && task.data._id);
+                if (id) {
+                    await db.collection(COLLECTIONS.TASKS).doc(id).update({ familyId });
+                    totalCount++;
+                }
+            }
+        }
+
+        // 迁移奖励
+        const rewardsResult = await db.collection(COLLECTIONS.REWARDS).where({ familyId: _.exists(false) }).get();
+        if (rewardsResult.data && rewardsResult.data.length > 0) {
+            for (const reward of rewardsResult.data) {
+                const id = reward._id || (reward.data && reward.data._id);
+                if (id) {
+                    await db.collection(COLLECTIONS.REWARDS).doc(id).update({ familyId });
+                    totalCount++;
+                }
+            }
+        }
+
+        return { success: true, count: totalCount };
+    } catch (error) {
+        console.error('❌ 迁移无主数据失败:', error);
+        return { success: false, count: totalCount, error: error.message };
+    }
+}
